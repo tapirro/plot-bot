@@ -314,8 +314,47 @@ def parse_state() -> dict:
     return json.loads(STATE_FILE.read_text())
 
 
+def _extract_artifact_ref(task_text: str) -> str | None:
+    """Extract artifact path from task text (backtick-quoted path after →)."""
+    m = re.search(r"→\s*`([^`]+)`", task_text)
+    if m:
+        return m.group(1)
+    return None
+
+
+def _artifact_exists(ref: str) -> bool:
+    """Check if an artifact file exists relative to REPO root."""
+    return (REPO / ref).exists()
+
+
+def _scan_cycle_reports_for_completions() -> set[str]:
+    """Scan cycle reports for roadmap task completions.
+
+    Looks for patterns like:
+    - 'Completed roadmap task: ...'
+    - References to created artifacts matching roadmap task descriptions
+    - Sections like '## Changes' listing new files
+    """
+    completions: set[str] = []
+    reports_dir = REPO / "work" / "cycle_reports"
+    if not reports_dir.exists():
+        return set()
+    for report_file in sorted(reports_dir.glob("CYCLE_*.md")):
+        text = report_file.read_text()
+        # Collect all backtick-quoted paths from cycle reports
+        for m in re.finditer(r"`((?:work|tools|knowledge|out)/[^`]+)`", text):
+            completions.append(m.group(1))
+    return set(completions)
+
+
 def parse_roadmap() -> dict:
-    """Parse roadmap markdown for phase completion stats and individual tasks."""
+    """Parse roadmap markdown for phase completion stats.
+
+    Completion is determined automatically:
+    1. Explicit [x] checkbox in roadmap = done
+    2. Task references artifact (→ `path`) that exists on disk = done (auto-detected)
+    3. Artifact path mentioned in cycle reports = supporting evidence
+    """
     if not ROADMAP_FILE.exists():
         return {"phases": [], "total": 0, "done": 0, "tasks": []}
 
@@ -326,6 +365,9 @@ def parse_roadmap() -> dict:
     current_section = None
     phase_done = 0
     phase_total = 0
+
+    # Pre-scan cycle reports for artifact references
+    report_artifacts = _scan_cycle_reports_for_completions()
 
     for line in text.splitlines():
         # Detect phase headers (## Phase N: ...)
@@ -356,17 +398,33 @@ def parse_roadmap() -> dict:
         if m_done:
             phase_total += 1
             phase_done += 1
+            task_text = m_done.group(1).strip()
+            ref = _extract_artifact_ref(task_text)
             tasks.append({
                 "section": current_section or "?",
-                "text": m_done.group(1).strip(),
+                "text": task_text,
                 "done": True,
+                "source": "checkbox",
+                "artifact": ref,
             })
         elif m_todo:
             phase_total += 1
+            task_text = m_todo.group(1).strip()
+            ref = _extract_artifact_ref(task_text)
+            # Auto-detect: unchecked task but artifact exists on disk
+            auto_done = False
+            if ref and _artifact_exists(ref):
+                auto_done = True
+            elif ref and ref in report_artifacts:
+                auto_done = True
+            if auto_done:
+                phase_done += 1
             tasks.append({
                 "section": current_section or "?",
-                "text": m_todo.group(1).strip(),
-                "done": False,
+                "text": task_text,
+                "done": auto_done,
+                "source": "auto" if auto_done else "pending",
+                "artifact": ref,
             })
 
     if current_phase and phase_total > 0:
@@ -945,12 +1003,17 @@ def build_html(
         toggle_cls = "open" if not all_done else ""
         tasks_li = ""
         for t in sec_tasks:
+            source = t.get("source", "checkbox")
+            is_auto = source == "auto"
             check_cls = "done" if t["done"] else ""
-            check_icon = "&#10003;" if t["done"] else ""
+            if is_auto:
+                check_cls += " auto-detected"
+            check_icon = "&#10003;" if t["done"] and not is_auto else "&#9670;" if is_auto else ""
             text_cls = "done" if t["done"] else ""
             # Escape HTML in task text
             safe_text = t["text"].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            tasks_li += f'<div class="backlog-task"><span class="backlog-check {check_cls}">{check_icon}</span><span class="backlog-text {text_cls}">{safe_text}</span></div>\n'
+            auto_tag = ' <span class="auto-tag" title="Detected from artifact on disk">auto</span>' if is_auto else ""
+            tasks_li += f'<div class="backlog-task"><span class="backlog-check {check_cls}">{check_icon}</span><span class="backlog-text {text_cls}">{safe_text}{auto_tag}</span></div>\n'
 
         backlog_html += f"""<div class="backlog-section" data-section="{idx}">
           <div class="backlog-header" onclick="toggleSection({idx})">
@@ -1106,8 +1169,10 @@ h1 {{ font-family:'Newsreader',Georgia,serif; font-size:28px; font-weight:600; l
 .backlog-task {{ display:flex; align-items:flex-start; gap:6px; padding:3px 0; font-size:11px; line-height:1.4; }}
 .backlog-check {{ flex-shrink:0; width:14px; height:14px; border:1.5px solid var(--c-subtle); border-radius:3px; margin-top:1px; display:flex; align-items:center; justify-content:center; }}
 .backlog-check.done {{ background:var(--m-elegance); border-color:var(--m-elegance); color:#fff; font-size:9px; }}
+.backlog-check.auto-detected {{ background:var(--m-awareness); border-color:var(--m-awareness); color:#fff; font-size:8px; }}
 .backlog-text {{ color:var(--c-ink); }}
 .backlog-text.done {{ color:var(--c-muted); text-decoration:line-through; }}
+.auto-tag {{ font-size:9px; padding:1px 5px; border-radius:3px; background:var(--m-awareness); color:#fff; font-weight:500; vertical-align:middle; margin-left:4px; }}
 .backlog-summary {{ display:flex; gap:16px; font-size:12px; color:var(--c-muted); margin-bottom:12px; padding-bottom:8px; border-bottom:1px solid var(--c-subtle); }}
 .backlog-summary strong {{ color:var(--c-ink); }}
 .backlog-filter {{ display:flex; gap:6px; margin-bottom:12px; }}

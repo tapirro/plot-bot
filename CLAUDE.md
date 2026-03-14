@@ -167,10 +167,11 @@ After each regular cycle, self-assess impact:
 1. **Self-score** impact (1-5) for this cycle. META cycles get impact `—`
 2. **Write cycle report** to `work/cycle_reports/CYCLE_NNN_<title>.md` (see Cycle Report Format below)
 3. **Append** one row to `work/CYCLE_PROGRESS.md` (see Progress Log Format below)
-4. **Update** `context/state.json`: increment `cycle_count`, advance `cycle_position = (pos + 1) % 5`, record impact
-5. **Commit** all changes: stage specific files (`git add <file1> <file2> ...`), then `git commit -m "cycle N: <title>"`. **NEVER `git add -A`** — review what you're committing. One cycle = one commit.
-6. **Log** to Hive: `POST /api/v1/logs` (summary, tokens_spent, outcome)
-7. **Build Dashboard**: `python3 tools/scripts/build_cycle_dashboard.py`
+4. **Update roadmap** — if this cycle completed a task from `work/bets/plot_bot_roadmap.md`, change its checkbox `[ ]` → `[x]` and add result annotation after `→`. Dashboard auto-detects artifacts but explicit checkboxes are the canonical source of truth.
+5. **Update** `context/state.json`: increment `cycle_count`, advance `cycle_position = (pos + 1) % 5`, record impact
+6. **Commit** all changes: stage specific files (`git add <file1> <file2> ...`), then `git commit -m "cycle N: <title>"`. **NEVER `git add -A`** — review what you're committing. One cycle = one commit.
+7. **Log** to Hive: `POST /api/v1/logs` (summary, tokens_spent, outcome)
+8. **Build Dashboard**: `python3 tools/scripts/build_cycle_dashboard.py`
 
 ### Cycle Report Format (`work/cycle_reports/CYCLE_NNN_<title>.md`)
 
