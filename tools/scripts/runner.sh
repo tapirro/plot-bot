@@ -19,7 +19,7 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 LOG_DIR="${REPO_DIR}/logs"
 STATE_FILE="${REPO_DIR}/context/state.json"
-COOLDOWN_SECONDS="${PLOT_BOT_COOLDOWN:-300}"     # 5 min between cycles
+COOLDOWN_MIN=10                                  # minimum pause between cycles (seconds)
 MAX_CONSECUTIVE_FAILURES=5
 KEYCHAIN_PASSWORD="${PLOT_BOT_KEYCHAIN_PW:-}"
 RATE_LIMIT_PAUSE=3600                            # 1 hour if rate-limited
@@ -249,7 +249,7 @@ unlock_keychain() {
 
 log "=== Plot Bot Runner started (PID $$) ==="
 log "Repo: $REPO_DIR"
-log "Cooldown: ${COOLDOWN_SECONDS}s"
+log "Rate control mode (no fixed cooldown)"
 
 while true; do
   # Pause gate: if pause file exists, wait until it's removed
@@ -532,7 +532,19 @@ else:
   # P2-2: Rotate JSONL session logs
   rotate_jsonl
 
-  log "Cooldown ${COOLDOWN_SECONDS}s..."
-  write_heartbeat "cooldown" "\"cooldown_seconds\": $COOLDOWN_SECONDS"
-  sleep "$COOLDOWN_SECONDS"
+  # Dynamic cooldown based on rate control
+  rate_now=$(check_rate_control)
+  if (( $(echo "$rate_now > 80" | bc -l 2>/dev/null || echo 0) )); then
+    COOLDOWN=600  # 10 min — eco mode, slow down
+    log "Rate ${rate_now}% > 80% → cooldown ${COOLDOWN}s (eco)"
+  elif (( $(echo "$rate_now > 60" | bc -l 2>/dev/null || echo 0) )); then
+    COOLDOWN=120  # 2 min — light mode
+    log "Rate ${rate_now}% > 60% → cooldown ${COOLDOWN}s (light)"
+  else
+    COOLDOWN=$COOLDOWN_MIN  # 10s — full speed
+    log "Rate ${rate_now}% → cooldown ${COOLDOWN}s (full)"
+  fi
+
+  write_heartbeat "cooldown" "\"cooldown_seconds\": $COOLDOWN, \"rate_pct\": $rate_now"
+  sleep "$COOLDOWN"
 done

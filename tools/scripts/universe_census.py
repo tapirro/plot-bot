@@ -30,23 +30,19 @@ ARCGIS_URL = (
 # Target zones: Poti → Kobuleti coastal corridor
 # Each zone: (name, xmin/lon_min, ymin/lat_min, xmax/lon_max, ymax/lat_max)
 # Bounding boxes: ~3km from coast inland
+# Format: (name, lon_min, lat_min, lon_max, lat_max) — WGS84
+# Verified against arcgis_spatial.py working presets
 ZONES: list[tuple[str, float, float, float, float]] = [
-    # Poti city + surroundings
-    ("Poti",          41.64, 42.12, 41.72, 42.18),
-    # Maltakva / Grigoleti north
-    ("Maltakva",      41.68, 42.02, 41.74, 42.12),
-    # Grigoleti (resort village)
-    ("Grigoleti",     41.68, 41.94, 41.74, 42.02),
-    # Ureki (magnetic sand beach)
-    ("Ureki",         41.72, 41.93, 41.78, 41.98),
-    # Shekvetili (new resort area)
-    ("Shekvetili",    41.76, 41.90, 41.82, 41.95),
-    # Kobuleti south
-    ("Kobuleti-S",    41.78, 41.80, 41.84, 41.88),
-    # Kobuleti center + north
-    ("Kobuleti-N",    41.76, 41.76, 41.82, 41.82),
-    # Tsikhisdziri / Bobokvati
-    ("Tsikhisdziri",  41.72, 41.72, 41.78, 41.78),
+    # Guria coast (north to south)
+    ("Poti",          41.62, 42.10, 41.72, 42.20),   # Layer 14 may not cover
+    ("Grigoleti",     41.68, 41.73, 41.73, 41.78),   # from arcgis preset
+    ("Ureki",         41.72, 41.75, 41.77, 41.78),   # from arcgis preset (verified: 1947)
+    # Transition zone
+    ("Shekvetili",    41.75, 41.78, 41.80, 41.82),
+    # Adjara coast (Kobuleti corridor)
+    ("Kobuleti-S",    41.78, 41.80, 41.84, 41.88),   # verified: 6340
+    ("Kobuleti-N",    41.76, 41.76, 41.82, 41.82),   # verified: 8474
+    ("Tsikhisdziri",  41.72, 41.72, 41.78, 41.78),   # verified: 7206
 ]
 
 

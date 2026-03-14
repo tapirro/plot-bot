@@ -120,6 +120,30 @@ When sources conflict: log both, flag `⚠️ CONFLICT`, prefer higher-trust sou
 - DATA-слоты (1, 3) для задач, которые в основном запускают скрипты; WORK-слоты (2, 4) для задач, требующих рассуждений
 - META планирует распределение и фиксирует в `context/cycle_plan.md` с указанием класса: `DATA` или `WORK`
 
+### Universe Metrics (MANDATORY — track in every META)
+
+The target zone is the Poti–Kobuleti coastal corridor. Total universe from ArcGIS census:
+
+| Metric | Current | Target | How to measure |
+|--------|---------|--------|----------------|
+| **Universe** | ~27,000 parcels | — | `python3 tools/scripts/universe_census.py` |
+| **In DB** | ~3,939 parcels | 100% of universe | `land_db.py stats` |
+| **With listings** | ~574 | All active listings | SS.ge + Place.ge scrape |
+| **Scored** | 0 | All parcels ≥3,000 m² (~10K) | `land_scorer.py` (not yet built) |
+| **Class A/B** | 0 | Identify all | Scoring pass |
+| **Verified (NAPR)** | 0 | All Class A/B | `napr_lookup.py` batch |
+| **Scoring factor coverage** | ~43% | 100% | `scored_factors / total_factors` in scoring_model.md |
+
+**Pipeline stages:** Enumerated → In DB → Has listing data → Scored → Verified → Cluster candidate → Escalated to Vadim
+
+Every META cycle MUST report these metrics in the cycle report. Run `universe_census.py` at least once per mega-cycle to update the universe count. Track progress as % of pipeline stages filled.
+
+**Key targets:**
+- **≥3,000 m² parcels ≈ 10,000** — this is the scorable universe (30-37% of all parcels)
+- **100% listing coverage** = every active listing on SS.ge/Place.ge in target zone is in our DB
+- **100% scoring** = every ≥3,000 m² parcel has a score
+- **0 unverified Class A** = every high-scoring parcel verified through NAPR
+
 ### North Stars (VERA)
 
 | Axis | Name | What it measures | Target |
