@@ -119,6 +119,7 @@ def lookup_point(
         "cadastral_code": None,
         "uniq_code": None,
         "area_m2": None,
+        "purpose": None,
         "parcel_count": 0,
         "properties": {},
         "source": "arcgis_layer14",
@@ -136,7 +137,9 @@ def lookup_point(
     best_area = float("inf")
     for f in features:
         attrs = f.get("attributes", {})
-        area = attrs.get("SHAPE_Area") or attrs.get("SHAPE.STArea()") or float("inf")
+        # ArcGIS returns SHAPE.AREA (with dot) — try multiple variants
+        area = (attrs.get("SHAPE.AREA") or attrs.get("SHAPE_Area")
+                or attrs.get("SHAPE.STArea()") or float("inf"))
         try:
             area = float(area)
         except (ValueError, TypeError):
@@ -155,13 +158,19 @@ def lookup_point(
             result["uniq_code"] = uniq
             result["cadastral_code"] = uniq_to_cadastral(uniq)
 
-        # Extract area (SHAPE_Area is in projection units, need to convert)
-        area = best.get("SHAPE_Area") or best.get("SHAPE.STArea()")
+        # Extract area — SHAPE.AREA in m² (WGS84 projection may distort)
+        area = (best.get("SHAPE.AREA") or best.get("SHAPE_Area")
+                or best.get("SHAPE.STArea()"))
         if area:
             try:
                 result["area_m2"] = round(float(area), 1)
             except (ValueError, TypeError):
                 pass
+
+        # Extract purpose (Georgian: DANISHNULEBA)
+        purpose = best.get("DANISHNULEBA")
+        if purpose:
+            result["purpose"] = purpose
 
     return result
 
