@@ -987,6 +987,224 @@ def _esc(s: str) -> str:
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+def parse_pipeline_metrics() -> dict:
+    """Collect data pipeline metrics from DB, census, and cycle reports."""
+    metrics: dict = {
+        "universe": 0, "in_db": 0, "listings": 0, "scored": 0, "verified": 0,
+        "over_3000": 0, "scoring_coverage_pct": 43,
+        "history": [],  # per-cycle snapshots
+    }
+
+    # Universe from census JSON
+    census_file = REPO / "work" / "data" / "universe_census.json"
+    if census_file.exists():
+        try:
+            d = json.loads(census_file.read_text())
+            metrics["universe"] = d.get("total_parcels", 0)
+            metrics["over_3000"] = d.get("relevant_3000m2", 0)
+            if not metrics["over_3000"]:
+                # Compute from zone stats
+                for z in d.get("zones", []):
+                    st = z.get("area_stats", {})
+                    metrics["over_3000"] += st.get("over_3000m2", 0)
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    # DB stats from land.db
+    db_file = REPO / "work" / "data" / "land.db"
+    if db_file.exists():
+        try:
+            import sqlite3
+            conn = sqlite3.connect(str(db_file))
+            c = conn.cursor()
+            for table, key in [("parcels", "in_db"), ("listings", "listings"), ("scores", "scored")]:
+                try:
+                    c.execute(f"SELECT COUNT(*) FROM {table}")
+                    metrics[key] = c.fetchone()[0]
+                except Exception:
+                    pass
+            conn.close()
+        except Exception:
+            pass
+
+    # If no DB, check JSON file counts
+    if metrics["in_db"] == 0:
+        data_dir = REPO / "work" / "data"
+        for jf in data_dir.glob("arcgis_*.json"):
+            try:
+                d = json.loads(jf.read_text())
+                if isinstance(d, list):
+                    metrics["in_db"] += len(d)
+                elif isinstance(d, dict):
+                    metrics["in_db"] += len(d.get("features", d.get("parcels", [])))
+            except Exception:
+                pass
+
+    if metrics["listings"] == 0:
+        data_dir = REPO / "work" / "data"
+        for jf in data_dir.glob("*_coastal*.json"):
+            try:
+                d = json.loads(jf.read_text())
+                if isinstance(d, list):
+                    metrics["listings"] += len(d)
+                elif isinstance(d, dict):
+                    metrics["listings"] += len(d.get("listings", []))
+            except Exception:
+                pass
+        for jf in data_dir.glob("ss_ge_*.json"):
+            try:
+                d = json.loads(jf.read_text())
+                if isinstance(d, list):
+                    metrics["listings"] += len(d)
+                elif isinstance(d, dict):
+                    metrics["listings"] += len(d.get("listings", []))
+            except Exception:
+                pass
+
+    # Scoring coverage from scoring_model.md
+    sm = REPO / "work" / "scoring_model.md"
+    if sm.exists():
+        text = sm.read_text()
+        total_factors = len(re.findall(r"^[-*]\s+\*?\*?[SF]\d", text, re.M))
+        available = len(re.findall(r"(?:✅|available|remote|API)", text, re.I))
+        if total_factors > 0 and available > 0:
+            metrics["scoring_coverage_pct"] = round(available / total_factors * 100)
+
+    # Per-cycle snapshots from cycle reports (extract data collection notes)
+    history: list[dict] = []
+    reports_dir = REPO / "work" / "cycle_reports"
+    if reports_dir.exists():
+        for rpt in sorted(reports_dir.glob("CYCLE_*.md")):
+            name = rpt.stem
+            m = re.match(r"CYCLE_(\d+)", name)
+            if not m:
+                continue
+            cycle_n = int(m.group(1))
+            text = rpt.read_text()
+            snap: dict = {"cycle": cycle_n, "parcels_added": 0, "listings_added": 0}
+
+            # Try to extract parcel/listing counts from report text
+            for pat, key in [
+                (r"(\d[\d,]*)\s*(?:parcels?|участ)", "parcels_added"),
+                (r"(\d[\d,]*)\s*(?:listings?|листинг|объявлен)", "listings_added"),
+            ]:
+                match = re.search(pat, text, re.I)
+                if match:
+                    snap[key] = int(match.group(1).replace(",", ""))
+            history.append(snap)
+
+    metrics["history"] = history
+    return metrics
+
+
+def _pipeline_html(metrics: dict) -> str:
+    """Build Data Pipeline section HTML."""
+    universe = metrics.get("universe", 0)
+    over_3k = metrics.get("over_3000", 0)
+    in_db = metrics.get("in_db", 0)
+    listings = metrics.get("listings", 0)
+    scored = metrics.get("scored", 0)
+    verified = metrics.get("verified", 0)
+    scov = metrics.get("scoring_coverage_pct", 0)
+    history = metrics.get("history", [])
+
+    # Pipeline stages with percentages
+    stages = [
+        ("Universe", universe, 100, "--m-awareness-text"),
+        ("In DB", in_db, (in_db / universe * 100) if universe else 0, "--m-elegance-text"),
+        ("Listings", listings, (listings / universe * 100) if universe else 0, "--m-value-text"),
+        ("Scored", scored, (scored / over_3k * 100) if over_3k else 0, "--m-reliability-text"),
+        ("Verified", verified, (verified / over_3k * 100) if over_3k else 0, "#e67e22"),
+    ]
+
+    # Stage bars
+    bars = ""
+    for label, count, pct, color in stages:
+        pct_f = min(pct, 100)
+        pct_str = f"{pct:.1f}%" if pct < 100 else "100%"
+        bars += f"""
+        <div class="pipe-stage">
+          <div class="pipe-label">{label}</div>
+          <div class="pipe-bar-wrap">
+            <div class="pipe-bar" style="width:{pct_f}%;background:var({color},{color})"></div>
+          </div>
+          <div class="pipe-count">{count:,}</div>
+          <div class="pipe-pct">{pct_str}</div>
+        </div>"""
+
+    # Target callout
+    target_html = ""
+    if over_3k:
+        target_html = f"""
+        <div class="pipe-target">
+          Target: <strong>{over_3k:,}</strong> parcels ≥3,000 m² — scorable universe
+        </div>"""
+
+    # Scoring coverage gauge
+    scov_color = "#27ae60" if scov >= 70 else "#f39c12" if scov >= 50 else "#e74c3c"
+    gauge_html = f"""
+    <div class="pipe-gauge">
+      <div class="pipe-gauge-label">Scoring Factor Coverage</div>
+      <div class="pipe-gauge-bar">
+        <div class="pipe-gauge-fill" style="width:{scov}%;background:{scov_color}"></div>
+      </div>
+      <div class="pipe-gauge-pct">{scov}%</div>
+    </div>"""
+
+    # History table (dynamics per cycle)
+    hist_html = ""
+    if history:
+        # Compute cumulative totals
+        cum_parcels = 0
+        cum_listings = 0
+        hist_rows = ""
+        for h in history:
+            cum_parcels += h.get("parcels_added", 0)
+            cum_listings += h.get("listings_added", 0)
+            p_added = h.get("parcels_added", 0)
+            l_added = h.get("listings_added", 0)
+            p_str = f"+{p_added:,}" if p_added else "—"
+            l_str = f"+{l_added:,}" if l_added else "—"
+            hist_rows += f"""<tr>
+              <td>#{h['cycle']}</td>
+              <td class="{'pipe-added' if p_added else ''}">{p_str}</td>
+              <td class="{'pipe-added' if l_added else ''}">{l_str}</td>
+              <td>{cum_parcels:,}</td>
+              <td>{cum_listings:,}</td>
+            </tr>"""
+
+        hist_html = f"""
+        <div class="pipe-history">
+          <div class="pipe-history-title">Collection Dynamics</div>
+          <table class="pipe-table">
+            <thead><tr>
+              <th>Cycle</th><th>Parcels</th><th>Listings</th><th>Σ Parcels</th><th>Σ Listings</th>
+            </tr></thead>
+            <tbody>{hist_rows}</tbody>
+          </table>
+        </div>"""
+
+    # Mini sparkline using Unicode blocks
+    spark_html = ""
+    if history:
+        max_p = max((h.get("parcels_added", 0) for h in history), default=1) or 1
+        blocks = ""
+        for h in history:
+            v = h.get("parcels_added", 0)
+            height = max(int(v / max_p * 30), 2) if v else 2
+            color = "var(--m-elegance-text)" if v > 0 else "var(--c-muted)"
+            blocks += f'<div class="spark-bar" style="height:{height}px;background:{color}" title="C{h["cycle"]}: +{v:,}"></div>'
+        spark_html = f'<div class="spark-row">{blocks}</div>'
+
+    return f"""
+    <div class="pipe-stages">{bars}</div>
+    {target_html}
+    {gauge_html}
+    {spark_html}
+    {hist_html}
+    """
+
+
 def build_html(
     cycles: list[dict], state: dict, roadmap: dict, heartbeat: dict,
     is_paused: bool = False, rate: dict | None = None, tokens: dict | None = None,
@@ -1060,6 +1278,10 @@ def build_html(
           <div class="phase-bar-track"><div class="phase-bar-fill" style="width:{pct}%;background:{bar_color}"></div></div>
           <div class="phase-count">{p["done"]}/{p["total"]}</div>
         </div>\n"""
+
+    # Data Pipeline section
+    pipeline_metrics = parse_pipeline_metrics()
+    pipeline_section = _pipeline_html(pipeline_metrics)
 
     # Backlog: group tasks by section
     all_tasks = roadmap.get("tasks", [])
@@ -1167,6 +1389,31 @@ h1 {{ font-family:'Newsreader',Georgia,serif; font-size:28px; font-weight:600; l
 .phase-bar-track {{ flex:1; height:14px; background:var(--c-subtle); border-radius:3px; overflow:hidden; }}
 .phase-bar-fill {{ height:100%; border-radius:3px; transition:width 300ms; }}
 .phase-count {{ font-size:11px; font-family:'JetBrains Mono',monospace; color:var(--c-muted); width:40px; text-align:right; flex-shrink:0; }}
+
+/* Data Pipeline */
+.pipe-stages {{ display:flex; flex-direction:column; gap:8px; }}
+.pipe-stage {{ display:grid; grid-template-columns:70px 1fr 60px 50px; align-items:center; gap:8px; }}
+.pipe-label {{ font-size:11px; color:var(--c-muted); text-transform:uppercase; letter-spacing:0.05em; }}
+.pipe-bar-wrap {{ height:16px; background:var(--c-subtle); border-radius:3px; overflow:hidden; }}
+.pipe-bar {{ height:100%; border-radius:3px; transition:width 500ms; min-width:2px; }}
+.pipe-count {{ font-size:13px; font-weight:600; text-align:right; font-family:'JetBrains Mono',monospace; }}
+.pipe-pct {{ font-size:11px; color:var(--c-muted); text-align:right; font-family:'JetBrains Mono',monospace; }}
+.pipe-target {{ font-size:11px; color:var(--c-muted); margin-top:6px; padding:6px 10px; background:var(--c-highlight); border-radius:4px; }}
+.pipe-gauge {{ display:grid; grid-template-columns:140px 1fr 40px; align-items:center; gap:8px; margin-top:10px; }}
+.pipe-gauge-label {{ font-size:11px; color:var(--c-muted); }}
+.pipe-gauge-bar {{ height:10px; background:var(--c-subtle); border-radius:3px; overflow:hidden; }}
+.pipe-gauge-fill {{ height:100%; border-radius:3px; }}
+.pipe-gauge-pct {{ font-size:12px; font-weight:600; text-align:right; font-family:'JetBrains Mono',monospace; }}
+.spark-row {{ display:flex; align-items:flex-end; gap:3px; height:32px; margin-top:10px; }}
+.spark-bar {{ width:12px; border-radius:2px 2px 0 0; cursor:default; }}
+.pipe-history {{ margin-top:12px; }}
+.pipe-history-title {{ font-size:11px; color:var(--c-muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px; }}
+.pipe-table {{ width:100%; border-collapse:collapse; font-size:11px; }}
+.pipe-table th {{ text-align:right; color:var(--c-muted); font-weight:400; padding:4px 8px; border-bottom:1px solid var(--c-subtle); font-size:10px; text-transform:uppercase; }}
+.pipe-table th:first-child {{ text-align:left; }}
+.pipe-table td {{ text-align:right; padding:3px 8px; border-bottom:1px solid var(--c-subtle); font-family:'JetBrains Mono',monospace; }}
+.pipe-table td:first-child {{ text-align:left; }}
+.pipe-added {{ color:var(--m-elegance-text); font-weight:600; }}
 
 /* Cycle table */
 .tbl {{ width:100%; border-collapse:collapse; font-size:12px; margin-top:8px; }}
@@ -1451,6 +1698,12 @@ h1 {{ font-family:'Newsreader',Georgia,serif; font-size:28px; font-weight:600; l
     <div class="card-title">Roadmap Progress</div>
     {phase_rows if phase_rows else '<p style="color:var(--c-muted);font-size:12px;">No roadmap data</p>'}
   </div>
+</div>
+
+<!-- Data Pipeline -->
+<div class="card" style="margin-bottom:16px;">
+  <div class="card-title">Data Pipeline</div>
+  {pipeline_section}
 </div>
 
 <!-- Backlog -->
