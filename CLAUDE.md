@@ -126,7 +126,21 @@ After each regular cycle, self-assess impact:
 | **4** | Significant — new analysis, actionable insight | Unit economics model with break-even |
 | **5** | Breakthrough — deal-ready output, investor-facing | Complete cluster evaluation with scoring |
 
-**Hard rule:** if avg impact of previous 4 cycles < 3.0 → next mega-cycle is stabilization only (no new tasks, fix existing).
+**Hard rules:**
+- If avg impact of previous 4 cycles < 3.0 → next mega-cycle is stabilization only (no new tasks, fix existing).
+- If avg impact of previous 4 cycles < 2.0 → **STOP**: create `context/agent_paused`, escalate "Impact too low — need operator review". Do NOT continue.
+- If 2 consecutive cycles produce impact 1 or 2 → escalate to Vadim with analysis of why impact is low.
+
+### Idle Mode (MANDATORY)
+
+During META planning, if you cannot find ≥2 tasks with expected impact ≥3 from any tier (Roadmap/Auto/Research):
+
+1. **Do NOT invent busywork.** Empty cycles waste tokens and pollute history.
+2. Write `context/agent_paused` with content: `idle: backlog exhausted YYYY-MM-DD`
+3. Escalate: "Backlog exhausted. N tasks remain but all are blocked/low-value. Waiting for operator input."
+4. **The bot will pause automatically** when `context/agent_paused` exists. Vadim removes the file to resume.
+
+This is better than producing 10 low-impact cycles that create noise.
 
 ### Session Start (MANDATORY SEQUENCE)
 
@@ -155,12 +169,13 @@ After each regular cycle, self-assess impact:
 
 ### Regular Cycle (cycle_position 1-4)
 
-1. Read task from `context/cycle_plan.md` (item #cycle_position)
-2. Если задача требует research >200 строк → **Gemini offload** (ОБЯЗАТЕЛЬНО, иначе = NEVER violation)
-3. Если задача требует решения Вадима → **эскалация** (ОБЯЗАТЕЛЬНО)
-4. Выполнить задачу, сохранить результат в `work/` или `out/`
-5. `./ask scan && ./ask h` — проверка compliance
-6. **Gemini usage log** — записать в cycle report секцию `## Gemini Log` (даже если 0 вызовов — записать `No Gemini offloads this cycle` + justification)
+1. **Feedback Gate** — check `work/feedback/` for files with `status: pending`. If any exist, process them FIRST per Escalation Response Processing rules. This takes priority over the planned task. Update affected artifacts (scoring_model.md, unit_economics.md, CLAUDE.md invariants, etc.) and set status to resolved.
+2. Read task from `context/cycle_plan.md` (item #cycle_position)
+3. Если задача требует research >200 строк → **Gemini offload** (ОБЯЗАТЕЛЬНО, иначе = NEVER violation)
+4. Если задача требует решения Вадима → **эскалация** (ОБЯЗАТЕЛЬНО)
+5. Выполнить задачу, сохранить результат в `work/` или `out/`
+6. `./ask scan && ./ask h` — проверка compliance
+7. **Gemini usage log** — записать в cycle report секцию `## Gemini Log` (даже если 0 вызовов — записать `No Gemini offloads this cycle` + justification)
 
 ### Session End (MANDATORY SEQUENCE)
 
