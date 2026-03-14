@@ -1493,15 +1493,112 @@ function toggleEsc(idx) {{
   toggle.classList.toggle('open');
 }}
 
-// Per-decision vote button
+// --- Escalation state persistence (localStorage) ---
+const ESC_STORE_KEY = 'plotbot_esc_state';
+
+function _loadEscState() {{
+  try {{ return JSON.parse(localStorage.getItem(ESC_STORE_KEY) || '{{}}'); }}
+  catch {{ return {{}}; }}
+}}
+
+function _saveEscState(state) {{
+  localStorage.setItem(ESC_STORE_KEY, JSON.stringify(state));
+}}
+
+function _clearEscState() {{
+  localStorage.removeItem(ESC_STORE_KEY);
+}}
+
+// Save single decision vote
 function setDecision(dId, vote, btn) {{
-  // Remove selected from siblings
   btn.parentElement.querySelectorAll('.esc-d-btn').forEach(b => {{
     b.classList.remove('selected', 'sel-yes', 'sel-no', 'sel-auto');
   }});
   btn.classList.add('selected', 'sel-' + vote);
   btn.dataset.vote = vote;
+  // Persist
+  const s = _loadEscState();
+  if (!s[dId]) s[dId] = {{}};
+  s[dId].vote = vote;
+  _saveEscState(s);
 }}
+
+// Auto-save comment on input (debounced)
+let _commentTimers = {{}};
+function _onCommentInput(dId) {{
+  clearTimeout(_commentTimers[dId]);
+  _commentTimers[dId] = setTimeout(() => {{
+    const el = document.getElementById(dId + '-comment');
+    if (!el) return;
+    const s = _loadEscState();
+    if (!s[dId]) s[dId] = {{}};
+    s[dId].comment = el.value;
+    _saveEscState(s);
+  }}, 300);
+}}
+
+// Auto-save general text
+let _genTimer = null;
+function _onGeneralInput(escIdx) {{
+  clearTimeout(_genTimer);
+  _genTimer = setTimeout(() => {{
+    const el = document.getElementById('esc-text-' + escIdx);
+    if (!el) return;
+    const s = _loadEscState();
+    s['_general_' + escIdx] = el.value;
+    _saveEscState(s);
+  }}, 300);
+}}
+
+// Restore all state on page load
+function _restoreEscState() {{
+  const s = _loadEscState();
+  for (const [key, val] of Object.entries(s)) {{
+    if (key.startsWith('_general_')) {{
+      const idx = key.replace('_general_', '');
+      const el = document.getElementById('esc-text-' + idx);
+      if (el && val) el.value = val;
+      continue;
+    }}
+    // Restore vote
+    if (val.vote) {{
+      const el = document.getElementById(key);
+      if (!el) continue;
+      const btns = el.querySelectorAll('.esc-d-btn');
+      btns.forEach(b => {{
+        b.classList.remove('selected', 'sel-yes', 'sel-no', 'sel-auto');
+        const bVote = b.textContent.trim() === 'Да' ? 'yes' : b.textContent.trim() === 'Нет' ? 'no' : b.textContent.trim() === 'Решай сам' ? 'auto' : '';
+        if (bVote === val.vote) {{
+          b.classList.add('selected', 'sel-' + val.vote);
+          b.dataset.vote = val.vote;
+        }}
+      }});
+    }}
+    // Restore comment
+    if (val.comment) {{
+      const cel = document.getElementById(key + '-comment');
+      if (cel) cel.value = val.comment;
+    }}
+  }}
+}}
+
+// Attach input listeners to all comment fields and general textareas
+function _attachEscListeners() {{
+  document.querySelectorAll('.esc-d-comment').forEach(el => {{
+    const dId = el.id.replace('-comment', '');
+    el.addEventListener('input', () => _onCommentInput(dId));
+  }});
+  document.querySelectorAll('.esc-response-text').forEach(el => {{
+    const m = el.id.match(/esc-text-(\d+)/);
+    if (m) el.addEventListener('input', () => _onGeneralInput(m[1]));
+  }});
+}}
+
+// Init on DOM ready
+document.addEventListener('DOMContentLoaded', () => {{
+  _restoreEscState();
+  _attachEscListeners();
+}});
 
 // Collect all decisions and submit as structured feedback
 async function submitEscalationDecisions(escIdx, file, totalDecisions) {{
@@ -1565,6 +1662,7 @@ async function submitEscalationDecisions(escIdx, file, totalDecisions) {{
       const answered = decisions.filter(x => x.vote || x.comment).length;
       statusEl.textContent = answered + '/' + totalDecisions + ' decisions saved as ' + (d.file || 'feedback') + '. Bot processes in next META.';
       statusEl.style.color = 'var(--m-elegance)';
+      _clearEscState();
     }} else {{
       const d = await r.json();
       statusEl.textContent = d.error || 'Failed';
