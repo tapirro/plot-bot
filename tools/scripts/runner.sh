@@ -7,6 +7,11 @@
 #   ./tools/scripts/runner.sh              # foreground
 #   launchd / systemd → auto-managed       # production
 #
+# Safety features:
+#   P0: PID lock, signal handlers, atomic state writes, crash alerting
+#   P1: Feedback gate every cycle, repetition detection, git commit verification
+#   P2: Heartbeat watchdog, token projection, JSONL rotation
+#
 set -euo pipefail
 
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
@@ -21,14 +26,63 @@ RATE_LIMIT_PAUSE=3600                            # 1 hour if rate-limited
 
 HEARTBEAT_FILE="${REPO_DIR}/context/heartbeat.json"
 PAUSE_FILE="${REPO_DIR}/context/agent_paused"
+PID_FILE="${REPO_DIR}/context/runner.pid"
+FEEDBACK_DIR="${REPO_DIR}/work/feedback"
+CYCLE_REPORTS_DIR="${REPO_DIR}/work/cycle_reports"
+JSONL_DIR="$HOME/.claude/projects/-Users-polansk-Developer-mantissa-code-plot-bot"
+MAX_JSONL_FILES=100
+REPETITION_WINDOW=3                              # alert if last N titles are identical
 
 mkdir -p "$LOG_DIR" "${REPO_DIR}/context"
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# P0-1: PID LOCK — prevent double-start
+# ═══════════════════════════════════════════════════════════════════════════════
+if [ -f "$PID_FILE" ]; then
+  OLD_PID=$(cat "$PID_FILE" 2>/dev/null || echo "0")
+  if kill -0 "$OLD_PID" 2>/dev/null; then
+    echo "Runner already running (PID $OLD_PID). Exiting."
+    exit 1
+  fi
+  # Stale PID file — process is dead, clean up
+  rm -f "$PID_FILE"
+fi
+echo $$ > "$PID_FILE"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# P0-2: SIGNAL HANDLERS — clean shutdown on SIGTERM/SIGINT/EXIT
+# ═══════════════════════════════════════════════════════════════════════════════
+cleanup() {
+  local sig="${1:-EXIT}"
+  log "Signal $sig received. Cleaning up..."
+  # Kill child claude process if running
+  if [ -n "${CLAUDE_PID:-}" ] && [ "${CLAUDE_PID:-0}" -ne 0 ]; then
+    kill "$CLAUDE_PID" 2>/dev/null || true
+  fi
+  if [ -n "${WATCHDOG_PID:-}" ] && [ "${WATCHDOG_PID:-0}" -ne 0 ]; then
+    kill "$WATCHDOG_PID" 2>/dev/null || true
+  fi
+  write_heartbeat "stopped" "\"reason\": \"signal_${sig}\""
+  rm -f "$PID_FILE"
+  # P0-4: Alert Vadim on unexpected shutdown
+  if [ "$sig" != "EXIT" ] && [ "$sig" != "clean" ]; then
+    escalate "Plot Bot: Runner stopped" "Runner received $sig. PID=$$. Last cycle: ${NEXT_CYCLE:-?}."
+  fi
+  exit 0
+}
+trap 'cleanup TERM' SIGTERM
+trap 'cleanup INT' SIGINT
+trap 'cleanup EXIT' EXIT
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# UTILITY FUNCTIONS
+# ═══════════════════════════════════════════════════════════════════════════════
 write_heartbeat() {
-  # Args: status, [extra fields as JSON fragment]
   local status="$1"
   local extra="${2:-}"
-  cat > "$HEARTBEAT_FILE" << HBJSON
+  # Atomic write: tmp → mv
+  local tmp="${HEARTBEAT_FILE}.tmp"
+  cat > "$tmp" << HBJSON
 {
   "status": "${status}",
   "cycle": ${NEXT_CYCLE:-0},
@@ -37,14 +91,27 @@ write_heartbeat() {
   "mode": "${RATE_MODE:-FULL}",
   "rate_pct": ${rate_pct:-0},
   "timestamp": "$(date -u '+%Y-%m-%dT%H:%M:%SZ')",
-  "pid": ${CLAUDE_PID:-0}${extra:+,
+  "pid": $$${extra:+,
   $extra}
 }
 HBJSON
+  mv -f "$tmp" "$HEARTBEAT_FILE"
 }
 
 log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_DIR/runner.log"
+}
+
+escalate() {
+  local subject="$1"
+  local body="$2"
+  log "ESCALATION: $subject — $body"
+  curl -s -X POST "https://spora.live/api/v1/escalate" \
+    -H "Authorization: Bearer $(cat "$REPO_DIR/.claude/api_token" 2>/dev/null)" \
+    -H "X-Agent-Id: $(cat "$REPO_DIR/.claude/agent_id" 2>/dev/null)" \
+    -H "Content-Type: application/json; charset=utf-8" \
+    -d "{\"subject\": \"$subject\", \"body\": \"$body\"}" \
+    2>/dev/null || log "WARNING: escalation POST failed"
 }
 
 check_rate_control() {
@@ -54,17 +121,120 @@ check_rate_control() {
   echo "$pct"
 }
 
+# P0-3: Atomic state file operations with backup
 read_state() {
   if [ -f "$STATE_FILE" ]; then
-    CYCLE_COUNT=$(python3 -c "import json; d=json.load(open('$STATE_FILE')); print(d.get('cycle_count',0))" 2>/dev/null || echo "0")
-    CYCLE_POS=$(python3 -c "import json; d=json.load(open('$STATE_FILE')); print(d.get('cycle_position',0))" 2>/dev/null || echo "0")
-    AVG_IMPACT=$(python3 -c "import json; d=json.load(open('$STATE_FILE')); print(d.get('avg_impact',0))" 2>/dev/null || echo "0")
+    # Validate JSON before reading
+    if python3 -c "import json; json.load(open('$STATE_FILE'))" 2>/dev/null; then
+      CYCLE_COUNT=$(python3 -c "import json; d=json.load(open('$STATE_FILE')); print(d.get('cycle_count',0))" 2>/dev/null || echo "0")
+      CYCLE_POS=$(python3 -c "import json; d=json.load(open('$STATE_FILE')); print(d.get('cycle_position',0))" 2>/dev/null || echo "0")
+      AVG_IMPACT=$(python3 -c "import json; d=json.load(open('$STATE_FILE')); print(d.get('avg_impact',0))" 2>/dev/null || echo "0")
+    else
+      log "ERROR: state.json corrupted! Attempting recovery from backup..."
+      if [ -f "${STATE_FILE}.bak" ] && python3 -c "import json; json.load(open('${STATE_FILE}.bak'))" 2>/dev/null; then
+        cp "${STATE_FILE}.bak" "$STATE_FILE"
+        log "Recovered state.json from backup."
+        read_state  # re-read from restored file
+        return
+      else
+        log "CRITICAL: No valid backup. Recovering from git..."
+        cd "$REPO_DIR"
+        git show HEAD:context/state.json > "$STATE_FILE" 2>/dev/null || true
+        if python3 -c "import json; json.load(open('$STATE_FILE'))" 2>/dev/null; then
+          log "Recovered state.json from git HEAD."
+          read_state
+          return
+        fi
+        log "CRITICAL: All recovery failed. Escalating and stopping."
+        escalate "Plot Bot: State Corrupted" "state.json corrupted, backup missing, git recovery failed. Manual intervention needed."
+        sleep "$RATE_LIMIT_PAUSE"
+        CYCLE_COUNT=0; CYCLE_POS=0; AVG_IMPACT=0
+      fi
+    fi
   else
     CYCLE_COUNT=0
     CYCLE_POS=0
     AVG_IMPACT=0
-    # Create initial state
     echo '{"cycle_count":0,"cycle_position":0,"mega_cycle":0,"last_impact":null,"impact_history":[],"avg_impact":0,"mode":"full","last_cycle_date":"","north_star_counts":{"V":0,"E":0,"R":0,"A":0}}' > "$STATE_FILE"
+  fi
+  # Always keep a backup after successful read
+  cp "$STATE_FILE" "${STATE_FILE}.bak" 2>/dev/null || true
+}
+
+# P1-1: Check for pending feedback
+check_pending_feedback() {
+  if [ ! -d "$FEEDBACK_DIR" ]; then
+    echo "0"
+    return
+  fi
+  local count
+  count=$(grep -rl 'status: pending' "$FEEDBACK_DIR"/FEEDBACK_*.md 2>/dev/null | wc -l | tr -d ' ')
+  echo "$count"
+}
+
+# P1-2: Detect repetitive cycle titles
+check_repetition() {
+  if [ ! -d "$CYCLE_REPORTS_DIR" ]; then
+    return 0
+  fi
+  # Get last N cycle titles from filenames
+  local recent_titles
+  recent_titles=$(ls -1t "$CYCLE_REPORTS_DIR"/CYCLE_*.md 2>/dev/null \
+    | head -"$REPETITION_WINDOW" \
+    | xargs -I{} basename {} .md \
+    | sed 's/CYCLE_[0-9]*_//' \
+    | sort -u)
+  local unique_count
+  unique_count=$(echo "$recent_titles" | grep -c . || echo "0")
+  if [ "$unique_count" -le 1 ] && [ "$(ls -1 "$CYCLE_REPORTS_DIR"/CYCLE_*.md 2>/dev/null | wc -l | tr -d ' ')" -ge "$REPETITION_WINDOW" ]; then
+    return 1  # repetition detected
+  fi
+  return 0
+}
+
+# P1-3: Verify git commit succeeded
+verify_git_state() {
+  cd "$REPO_DIR"
+  local dirty
+  dirty=$(git status --porcelain 2>/dev/null | grep -v '^??' | wc -l | tr -d ' ')
+  if [ "$dirty" -gt 0 ]; then
+    log "WARNING: Git working tree dirty after cycle (${dirty} modified files). Bot may have failed to commit."
+    return 1
+  fi
+  return 0
+}
+
+# P2-1: Token budget projection
+project_token_budget() {
+  python3 -c "
+import json, sys
+try:
+    data = json.load(sys.stdin)
+    w = data.get('windows', {}).get('7d', {})
+    pct = float(w.get('pct', 0))
+    days_left = float(w.get('days_left', 7))
+    if pct > 0 and days_left > 0:
+        rate_per_day = pct / max(7 - days_left, 0.5)
+        projected = pct + rate_per_day * days_left
+        hours_to_limit = (100 - pct) / (rate_per_day / 24) if rate_per_day > 0 else 999
+        print(json.dumps({'projected_pct': round(projected, 1), 'hours_to_limit': round(hours_to_limit, 1)}))
+    else:
+        print(json.dumps({'projected_pct': 0, 'hours_to_limit': 999}))
+except:
+    print(json.dumps({'projected_pct': 0, 'hours_to_limit': 999}))
+" 2>/dev/null || echo '{"projected_pct": 0, "hours_to_limit": 999}'
+}
+
+# P2-2: Rotate JSONL session logs
+rotate_jsonl() {
+  if [ -d "$JSONL_DIR" ]; then
+    local count
+    count=$(ls -1 "$JSONL_DIR"/*.jsonl 2>/dev/null | wc -l | tr -d ' ')
+    if [ "$count" -gt "$MAX_JSONL_FILES" ]; then
+      local to_remove=$((count - MAX_JSONL_FILES))
+      log "Rotating JSONL: removing ${to_remove} old session files (keeping ${MAX_JSONL_FILES})"
+      ls -1t "$JSONL_DIR"/*.jsonl 2>/dev/null | tail -n +"$((MAX_JSONL_FILES + 1))" | xargs rm -f 2>/dev/null || true
+    fi
   fi
 }
 
@@ -77,7 +247,7 @@ unlock_keychain() {
   fi
 }
 
-log "=== Plot Bot Runner started ==="
+log "=== Plot Bot Runner started (PID $$) ==="
 log "Repo: $REPO_DIR"
 log "Cooldown: ${COOLDOWN_SECONDS}s"
 
@@ -95,7 +265,7 @@ while true; do
   # Ensure keychain is unlocked (needed for Claude OAuth on macOS)
   unlock_keychain
 
-  # Read loop state
+  # Read loop state (with corruption protection)
   read_state
   NEXT_CYCLE=$((CYCLE_COUNT + 1))
 
@@ -103,20 +273,31 @@ while true; do
   rate_pct=$(check_rate_control)
   if (( $(echo "$rate_pct > 95" | bc -l 2>/dev/null || echo 0) )); then
     log "STOP mode: rate ${rate_pct}% > 95%. Pausing ${RATE_LIMIT_PAUSE}s."
+    write_heartbeat "rate-limited" "\"rate_pct\": ${rate_pct}"
     sleep "$RATE_LIMIT_PAUSE"
     continue
   fi
 
+  # P2-1: Token budget projection
+  PROJECTION=$(node ~/.claude/rate-control/claude_limits.mjs --json 2>/dev/null | project_token_budget)
+  PROJ_PCT=$(echo "$PROJECTION" | python3 -c "import sys,json; print(json.load(sys.stdin).get('projected_pct',0))" 2>/dev/null || echo "0")
+  HOURS_LEFT=$(echo "$PROJECTION" | python3 -c "import sys,json; print(json.load(sys.stdin).get('hours_to_limit',999))" 2>/dev/null || echo "999")
+
   # Determine mode
   if (( $(echo "$rate_pct > 80" | bc -l 2>/dev/null || echo 0) )); then
-    log "ECO mode: rate ${rate_pct}% > 80%. Only escalations."
+    log "ECO mode: rate ${rate_pct}% > 80%. Only escalations. (~${HOURS_LEFT}h to limit)"
     RATE_MODE="ECO"
   elif (( $(echo "$rate_pct > 60" | bc -l 2>/dev/null || echo 0) )); then
-    log "LIGHT mode: rate ${rate_pct}% > 60%. P0 tasks only."
+    log "LIGHT mode: rate ${rate_pct}% > 60%. P0 tasks only. (~${HOURS_LEFT}h to limit)"
     RATE_MODE="LIGHT"
   else
-    log "FULL mode: rate ${rate_pct}%."
+    log "FULL mode: rate ${rate_pct}%. Projected: ${PROJ_PCT}% by reset. (~${HOURS_LEFT}h to limit)"
     RATE_MODE="FULL"
+  fi
+
+  # Alert if projected to hit limit
+  if (( $(echo "$PROJ_PCT > 90" | bc -l 2>/dev/null || echo 0) )) && (( $(echo "$rate_pct < 80" | bc -l 2>/dev/null || echo 0) )); then
+    log "WARNING: Projected ${PROJ_PCT}% by weekly reset. Consider reducing cycle frequency."
   fi
 
   # Determine cycle type
@@ -126,6 +307,38 @@ while true; do
     CYCLE_TYPE="REGULAR"
   fi
 
+  # P1-1: Feedback gate — check for pending feedback EVERY cycle
+  PENDING_FB=$(check_pending_feedback)
+  FB_INSTRUCTION=""
+  if [ "$PENDING_FB" -gt 0 ]; then
+    log "FEEDBACK GATE: ${PENDING_FB} pending feedback file(s) in work/feedback/"
+    FB_INSTRUCTION="
+CRITICAL: There are ${PENDING_FB} PENDING feedback file(s) in work/feedback/ with status: pending.
+These contain operator decisions that MUST be processed BEFORE any other work.
+Read each pending file, apply decisions per the Escalation Response Processing rules in CLAUDE.md,
+update affected artifacts, then set status to resolved. This takes priority over your planned task."
+  fi
+
+  # P1-2: Repetition detection
+  REPETITION_WARNING=""
+  if ! check_repetition; then
+    log "WARNING: Last ${REPETITION_WINDOW} cycles have identical titles — possible loop detected."
+    REPETITION_WARNING="
+WARNING: The last ${REPETITION_WINDOW} cycles appear to have done the same work.
+Before proceeding, review work/CYCLE_PROGRESS.md for the last ${REPETITION_WINDOW} entries.
+If you're repeating yourself, STOP and pick a DIFFERENT task from the roadmap or research tier.
+Write a brief note in your cycle report explaining what was different this time."
+  fi
+
+  # Pre-flight: verify cycle_plan.md exists for regular cycles
+  PLAN_WARNING=""
+  if [ "$CYCLE_TYPE" = "REGULAR" ] && [ ! -f "${REPO_DIR}/context/cycle_plan.md" ]; then
+    log "WARNING: context/cycle_plan.md missing. Regular cycle has no task plan."
+    PLAN_WARNING="
+WARNING: context/cycle_plan.md does not exist. You MUST create it before executing a regular cycle.
+Run a mini-META: read the roadmap, pick a task for this position, write cycle_plan.md, then execute."
+  fi
+
   log "Cycle #${NEXT_CYCLE} (position ${CYCLE_POS}/4, type=${CYCLE_TYPE}, avg_impact=${AVG_IMPACT})"
 
   # Build prompt with state context
@@ -133,22 +346,27 @@ while true; do
 Cycle position: ${CYCLE_POS} of 4 (0=META).
 Type: ${CYCLE_TYPE}.
 Avg impact (last 4): ${AVG_IMPACT}.
+Token budget: ${HOURS_LEFT}h to weekly limit (projected ${PROJ_PCT}% at reset).
 
 Follow the Autonomous Loop Protocol in CLAUDE.md exactly:
 1. Read context/state.json for full state
 2. Execute Session Start sequence
 3. $([ "$CYCLE_TYPE" = "META" ] && echo "This is a META cycle: retrospective + quality check + research + plan next 4 cycles. CHECK work/feedback/ for pending items FIRST." || echo "This is a regular cycle: pick task #${CYCLE_POS} from context/cycle_plan.md and execute it.")
-4. Execute Session End sequence: self-score, append to work/CYCLE_PROGRESS.md, update context/state.json, commit, log to Hive
+4. Execute Session End sequence: self-score, append to work/CYCLE_PROGRESS.md, update context/state.json, update roadmap checkboxes if task completed, commit, log to Hive
 5. Build dashboard: python3 tools/scripts/build_cycle_dashboard.py
-
+${FB_INSTRUCTION}${REPETITION_WARNING}${PLAN_WARNING}
 MANDATORY REMINDERS:
 - Gemini offload is REQUIRED for any research >200 lines. Use gemini CLI. Your cycle report MUST include ## Gemini Log section.
 - If no Gemini was needed, write 'No Gemini offloads — [justification]' in the Gemini Log.
 - NEVER use git add -A. Stage specific files only.
-- Check work/feedback/ for pending operator feedback — process before new work if any exist."
+- Check work/feedback/ for pending operator feedback — process before new work if any exist.
+- After git commit, verify it succeeded. If it fails, do NOT advance state.json."
 
   TIMESTAMP=$(date '+%Y%m%d_%H%M%S')
   CYCLE_LOG="$LOG_DIR/cycle_${TIMESTAMP}.log"
+
+  # Record git state before cycle (for P1-3 verification)
+  GIT_HEAD_BEFORE=$(cd "$REPO_DIR" && git rev-parse HEAD 2>/dev/null || echo "unknown")
 
   log "Starting cycle → $CYCLE_LOG"
 
@@ -213,11 +431,32 @@ else:
     CYCLE_OUTCOME="max-turns"
   fi
 
+  # P1-3: Verify git commit happened
+  GIT_HEAD_AFTER=$(cd "$REPO_DIR" && git rev-parse HEAD 2>/dev/null || echo "unknown")
+  GIT_DIRTY=0
+  if ! verify_git_state; then
+    GIT_DIRTY=1
+  fi
+  GIT_COMMITTED=0
+  if [ "$GIT_HEAD_BEFORE" != "$GIT_HEAD_AFTER" ]; then
+    GIT_COMMITTED=1
+  fi
+
   if [ $EXIT_CODE -eq 0 ]; then
+    # Check for git issues
+    if [ $GIT_COMMITTED -eq 0 ] && [ "$CYCLE_OUTCOME" = "success" ]; then
+      log "WARNING: Cycle completed but no git commit was made."
+      CYCLE_OUTCOME="no-commit"
+    fi
+    if [ $GIT_DIRTY -eq 1 ]; then
+      log "WARNING: Working tree dirty after cycle. Uncommitted changes exist."
+      CYCLE_OUTCOME="${CYCLE_OUTCOME}+dirty"
+    fi
+
     log "Cycle #${NEXT_CYCLE} completed (${CYCLE_OUTCOME}). Tokens: ${CYCLE_TOKENS}, Duration: ${CYCLE_DURATION}s"
-    write_heartbeat "completed" "\"exit_code\": 0, \"outcome\": \"${CYCLE_OUTCOME}\""
+    write_heartbeat "completed" "\"exit_code\": 0, \"outcome\": \"${CYCLE_OUTCOME}\", \"committed\": ${GIT_COMMITTED}"
     # Log to Hive with rate + tokens
-    HIVE_EXTRA="{\"rate_pct\": ${rate_pct}, \"cycle_type\": \"${CYCLE_TYPE}\", \"mode\": \"${RATE_MODE}\", \"outcome\": \"${CYCLE_OUTCOME}\"}"
+    HIVE_EXTRA="{\"rate_pct\": ${rate_pct}, \"cycle_type\": \"${CYCLE_TYPE}\", \"mode\": \"${RATE_MODE}\", \"outcome\": \"${CYCLE_OUTCOME}\", \"projected_pct\": ${PROJ_PCT}, \"hours_left\": ${HOURS_LEFT}}"
     bash "$REPO_DIR/tools/scripts/hive_log.sh" \
       "cycle ${NEXT_CYCLE}: ${CYCLE_TYPE} (${RATE_MODE}) [${CYCLE_OUTCOME}]" \
       "$CYCLE_TOKENS" "$CYCLE_DURATION" "$CYCLE_OUTCOME" "$HIVE_EXTRA" \
@@ -244,19 +483,16 @@ else:
   # Circuit breaker
   if [ $failures -ge $MAX_CONSECUTIVE_FAILURES ]; then
     log "CIRCUIT BREAKER: ${failures} consecutive failures. Pausing ${RATE_LIMIT_PAUSE}s."
-    # Escalate to Vadim
-    curl -s -X POST "https://spora.live/api/v1/escalate" \
-      -H "Authorization: Bearer $(cat "$REPO_DIR/.claude/api_token")" \
-      -H "X-Agent-Id: $(cat "$REPO_DIR/.claude/agent_id")" \
-      -H "Content-Type: application/json; charset=utf-8" \
-      -d "{\"subject\": \"Plot Bot: Circuit Breaker\", \"body\": \"${failures} consecutive failures. Last exit code: ${EXIT_CODE}. Pausing for 1 hour.\"}" \
-      2>/dev/null || true
+    escalate "Plot Bot: Circuit Breaker" "${failures} consecutive failures. Last exit code: ${EXIT_CODE}. Pausing for 1 hour."
     sleep "$RATE_LIMIT_PAUSE"
     failures=0
   fi
 
   # Rotate logs (keep last 50 cycle logs)
   ls -1t "$LOG_DIR"/cycle_*.log 2>/dev/null | tail -n +51 | xargs rm -f 2>/dev/null || true
+
+  # P2-2: Rotate JSONL session logs
+  rotate_jsonl
 
   log "Cooldown ${COOLDOWN_SECONDS}s..."
   write_heartbeat "cooldown" "\"cooldown_seconds\": $COOLDOWN_SECONDS"
