@@ -300,11 +300,40 @@ while true; do
     log "WARNING: Projected ${PROJ_PCT}% by weekly reset. Consider reducing cycle frequency."
   fi
 
-  # Determine cycle type
+  # Determine cycle type and class
   if [ "$CYCLE_POS" -eq 0 ]; then
     CYCLE_TYPE="META"
+    CYCLE_CLASS="META"
+    MAX_TURNS=15
+    WATCHDOG_TIMEOUT=1200  # 20 min
+  elif [ "$CYCLE_POS" -eq 1 ] || [ "$CYCLE_POS" -eq 3 ]; then
+    CYCLE_CLASS="DATA"
+    MAX_TURNS=10
+    WATCHDOG_TIMEOUT=600   # 10 min
+    # Try to read subtype from cycle_plan.md
+    CYCLE_TYPE=$(python3 -c "
+import re, sys
+try:
+    text = open('${REPO_DIR}/context/cycle_plan.md').read()
+    # Find line for this position: '## Position N' or '- N.' or '#N'
+    pattern = r'(?:^|\n).*?(?:position\s*${CYCLE_POS}|^${CYCLE_POS}[\.\):]|#\s*${CYCLE_POS}\b).*?(?:type|subtype|class)?[:\s]*(RESEARCH|ANALYSIS|BUILD|ESCALATION|BOLD|DATA|WORK)'
+    m = re.search(pattern, text, re.IGNORECASE)
+    print(m.group(1).upper() if m else 'DATA')
+except: print('DATA')
+" 2>/dev/null || echo "DATA")
   else
-    CYCLE_TYPE="REGULAR"
+    CYCLE_CLASS="WORK"
+    MAX_TURNS=20
+    WATCHDOG_TIMEOUT=1500  # 25 min
+    CYCLE_TYPE=$(python3 -c "
+import re, sys
+try:
+    text = open('${REPO_DIR}/context/cycle_plan.md').read()
+    pattern = r'(?:^|\n).*?(?:position\s*${CYCLE_POS}|^${CYCLE_POS}[\.\):]|#\s*${CYCLE_POS}\b).*?(?:type|subtype|class)?[:\s]*(RESEARCH|ANALYSIS|BUILD|ESCALATION|BOLD|DATA|WORK)'
+    m = re.search(pattern, text, re.IGNORECASE)
+    print(m.group(1).upper() if m else 'WORK')
+except: print('WORK')
+" 2>/dev/null || echo "WORK")
   fi
 
   # P1-1: Feedback gate — check for pending feedback EVERY cycle
@@ -330,34 +359,43 @@ If you're repeating yourself, STOP and pick a DIFFERENT task from the roadmap or
 Write a brief note in your cycle report explaining what was different this time."
   fi
 
-  # Pre-flight: verify cycle_plan.md exists for regular cycles
+  # Pre-flight: verify cycle_plan.md exists for DATA/WORK cycles
   PLAN_WARNING=""
-  if [ "$CYCLE_TYPE" = "REGULAR" ] && [ ! -f "${REPO_DIR}/context/cycle_plan.md" ]; then
-    log "WARNING: context/cycle_plan.md missing. Regular cycle has no task plan."
+  if [ "$CYCLE_CLASS" != "META" ] && [ ! -f "${REPO_DIR}/context/cycle_plan.md" ]; then
+    log "WARNING: context/cycle_plan.md missing. ${CYCLE_CLASS} cycle has no task plan."
     PLAN_WARNING="
-WARNING: context/cycle_plan.md does not exist. You MUST create it before executing a regular cycle.
+WARNING: context/cycle_plan.md does not exist. You MUST create it before executing a ${CYCLE_CLASS} cycle.
 Run a mini-META: read the roadmap, pick a task for this position, write cycle_plan.md, then execute."
   fi
 
-  log "Cycle #${NEXT_CYCLE} (position ${CYCLE_POS}/4, type=${CYCLE_TYPE}, avg_impact=${AVG_IMPACT})"
+  log "Cycle #${NEXT_CYCLE} (pos ${CYCLE_POS}/4, class=${CYCLE_CLASS}, type=${CYCLE_TYPE}, turns=${MAX_TURNS}, avg_impact=${AVG_IMPACT})"
+
+  # Build cycle-class-specific instruction
+  if [ "$CYCLE_CLASS" = "META" ]; then
+    CLASS_INSTRUCTION="This is a META cycle (15 turns): retrospective + quality check + research + plan next 4 cycles (DATA/WORK slots). CHECK work/feedback/ for pending items FIRST. If backlog is thin (<2 tasks with impact ≥3), generate hypotheses per CLAUDE.md §Hypothesis Generation."
+  elif [ "$CYCLE_CLASS" = "DATA" ]; then
+    CLASS_INSTRUCTION="This is a DATA cycle (10 turns): mechanical data collection. Pick task #${CYCLE_POS} from context/cycle_plan.md. Run scripts, save outputs, write minimal stats. NO Gemini required. NO ./ask scan. Be fast and cheap."
+  else
+    CLASS_INSTRUCTION="This is a WORK cycle (20 turns): full analytical protocol. Pick task #${CYCLE_POS} from context/cycle_plan.md. Gemini offload for research >200 lines. Run ./ask scan. Full cycle report with Gemini Log."
+  fi
 
   # Build prompt with state context
   CYCLE_PROMPT="Autonomous cycle #${NEXT_CYCLE}. Mode: ${RATE_MODE}. Rate: ${rate_pct}%.
-Cycle position: ${CYCLE_POS} of 4 (0=META).
-Type: ${CYCLE_TYPE}.
+Cycle position: ${CYCLE_POS} of 4 (0=META). Class: ${CYCLE_CLASS}. Subtype: ${CYCLE_TYPE}.
 Avg impact (last 4): ${AVG_IMPACT}.
 Token budget: ${HOURS_LEFT}h to weekly limit (projected ${PROJ_PCT}% at reset).
+Turn limit: ${MAX_TURNS}.
 
 Follow the Autonomous Loop Protocol in CLAUDE.md exactly:
 1. Read context/state.json for full state
 2. Execute Session Start sequence
-3. $([ "$CYCLE_TYPE" = "META" ] && echo "This is a META cycle: retrospective + quality check + research + plan next 4 cycles. CHECK work/feedback/ for pending items FIRST." || echo "This is a regular cycle: pick task #${CYCLE_POS} from context/cycle_plan.md and execute it.")
+3. ${CLASS_INSTRUCTION}
 4. Execute Session End sequence: self-score, append to work/CYCLE_PROGRESS.md, update context/state.json, update roadmap checkboxes if task completed, commit, log to Hive
 5. Build dashboard: python3 tools/scripts/build_cycle_dashboard.py
 ${FB_INSTRUCTION}${REPETITION_WARNING}${PLAN_WARNING}
 MANDATORY REMINDERS:
-- Gemini offload is REQUIRED for any research >200 lines. Use gemini CLI. Your cycle report MUST include ## Gemini Log section.
-- If no Gemini was needed, write 'No Gemini offloads — [justification]' in the Gemini Log.
+- For WORK cycles: Gemini offload is REQUIRED for research >200 lines. Cycle report MUST include ## Gemini Log.
+- For DATA cycles: skip Gemini and compliance scan. Write minimal stats report. Be fast.
 - NEVER use git add -A. Stage specific files only.
 - Check work/feedback/ for pending operator feedback — process before new work if any exist.
 - After git commit, verify it succeeded. If it fails, do NOT advance state.json."
@@ -376,21 +414,21 @@ MANDATORY REMINDERS:
   CLAUDE_PID=0
   write_heartbeat "running"
 
-  # Run one autonomous cycle (with 30-min watchdog)
+  # Run one autonomous cycle (with class-appropriate watchdog)
   set +e
   cd "$REPO_DIR"
   claude -p "$CYCLE_PROMPT" \
     --dangerously-skip-permissions \
     --output-format json \
-    --max-turns 30 \
+    --max-turns "$MAX_TURNS" \
     > "$CYCLE_LOG" 2>&1 &
   CLAUDE_PID=$!
 
   # Update heartbeat with actual PID
   write_heartbeat "running"
 
-  # Watchdog: kill if running longer than 30 minutes
-  ( sleep 1800 && kill "$CLAUDE_PID" 2>/dev/null ) &
+  # Watchdog: kill if exceeds timeout (DATA=10m, META=20m, WORK=25m)
+  ( sleep "$WATCHDOG_TIMEOUT" && kill "$CLAUDE_PID" 2>/dev/null ) &
   WATCHDOG_PID=$!
 
   wait "$CLAUDE_PID" 2>/dev/null

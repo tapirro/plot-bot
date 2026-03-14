@@ -84,26 +84,27 @@ When sources conflict: log both, flag `⚠️ CONFLICT`, prefer higher-trust sou
 
 ### Cycle Structure
 
-5 циклов = 1 мега-цикл: `[META, R, R, R, R]`
+5 циклов = 1 мега-цикл: `[META, DATA, WORK, DATA, WORK]`
 
-| Position | Type | Purpose |
-|----------|------|---------|
-| 0 (каждый 5-й) | **META** | Ретроспектива + планирование. **Ноль новой работы.** |
-| 1-4 | **RESEARCH / ANALYSIS / BUILD / ESCALATION** | Выполнение задач из плана META |
+| Position | Class | Turns | Watchdog | Purpose |
+|----------|-------|-------|----------|---------|
+| 0 | **META** | 15 | 20 min | Ретроспектива + планирование. **Ноль новой работы.** |
+| 1, 3 | **DATA** | 10 | 10 min | Механический сбор данных. Скрипты, скрапинг, загрузка. Минимум LLM. |
+| 2, 4 | **WORK** | 20 | 25 min | Аналитика, модели, инструменты, эскалации. Полный протокол. |
 
-**Типы циклов:**
-- `META` — ретроспектива (оценка 4 предыдущих), планирование следующих 4, Gemini research
-- `RESEARCH` — сбор данных, скрапинг, исследование источников
-- `ANALYSIS` — расчёты, scoring models, unit economics, оценки
-- `BUILD` — скрипты, инструменты, дашборды, инфраструктура
-- `ESCALATION` — подготовка решений для Вадима с вариантами
-- `BOLD` — эксперимент с высоким риском/высокой наградой (новый подход, нестандартный источник данных, прототип)
+**Подтипы (присваиваются в META):**
+- `RESEARCH` — сбор данных, скрапинг, исследование источников (→ DATA или WORK)
+- `ANALYSIS` — расчёты, scoring models, unit economics (→ WORK)
+- `BUILD` — скрипты, инструменты, дашборды (→ WORK)
+- `ESCALATION` — подготовка решений для Вадима (→ WORK)
+- `BOLD` — эксперимент с высоким риском/высокой наградой (→ WORK)
 
-**Ограничения на распределение (за мега-цикл из 4 рабочих):**
-- Минимум 2 цикла — value-producing (RESEARCH/ANALYSIS с North Star V)
-- Максимум 1 цикл — cleanup/infrastructure (BUILD без V)
-- Максимум 1 цикл — BOLD (экспериментальный)
-- META планирует распределение и фиксирует в `context/cycle_plan.md`
+**Ограничения (за мега-цикл, 4 рабочих слота):**
+- Минимум 2 слота — value-producing (RESEARCH/ANALYSIS с North Star V)
+- Максимум 1 слот — cleanup/infrastructure (BUILD без V)
+- Максимум 1 слот — BOLD (экспериментальный)
+- DATA-слоты (1, 3) для задач, которые в основном запускают скрипты; WORK-слоты (2, 4) для задач, требующих рассуждений
+- META планирует распределение и фиксирует в `context/cycle_plan.md` с указанием класса: `DATA` или `WORK`
 
 ### North Stars (VERA)
 
@@ -151,10 +152,10 @@ This is better than producing 10 low-impact cycles that create noise.
    - `>95%` → Stop (записать прогресс, выйти)
 3. Run `bash .claude/bootstrap.sh` — Hive + Telema sync
 4. Check inbox: `in/` folder for new materials
-5. If `cycle_position == 0` → **META cycle** (see below)
-6. Else → pick highest priority task from `context/cycle_plan.md`
+5. If `cycle_position == 0` → **META cycle**
+6. Else → determine cycle class from `context/cycle_plan.md` (DATA or WORK) → execute appropriate protocol
 
-### META Cycle (cycle_position == 0)
+### META Cycle (position 0 — 15 turns)
 
 **No new work. Analysis and planning only.**
 
@@ -164,12 +165,38 @@ This is better than producing 10 low-impact cycles that create noise.
 4. **Auto-backlog** — collect violations from quality check → add to Auto tier in roadmap
 5. **Research** — Gemini offload: 2-3 web searches on market trends, new data sources, competitor analysis
 6. **Roadmap Review** — read `work/bets/plot_bot_roadmap.md`, review all 3 tiers (Roadmap > Auto > Research)
-7. **Plan Next 4** — write `context/cycle_plan.md` with exactly 4 tasks. Each task: linked North Star + source tier + type. Respect distribution constraints (min 2 value-producing, max 1 cleanup, max 1 BOLD)
-8. **Build Dashboard** — `python3 tools/scripts/build_cycle_dashboard.py`
+7. **Plan Next 4** — write `context/cycle_plan.md` with exactly 4 tasks:
+   - Position 1 (DATA), Position 2 (WORK), Position 3 (DATA), Position 4 (WORK)
+   - Each task: linked North Star + source tier + subtype + class (DATA/WORK)
+   - Respect distribution constraints
+   - DATA slots: tasks that mostly run scripts, scrape, download, collect
+   - WORK slots: tasks that require reasoning, analysis, tool-building, escalation
+8. **Hypothesis Generation** (when backlog is thin):
+   - If fewer than 2 tasks with expected impact ≥3 remain in all tiers:
+   - a) **Formulate hypothesis** about market/data/opportunity (e.g. "Batumi beachfront lots under $30K are underpriced relative to rental yield")
+   - b) **Plan research** — 2-3 concrete steps to test the hypothesis (data to collect, sources to check, model to run)
+   - c) **Define success criteria** — what would confirm/refute the hypothesis, what artifact would result
+   - d) **Add to Research tier** in roadmap with `[HYPOTHESIS]` tag
+   - This ensures the bot always has valuable work. Hypotheses are treated as P2 tasks — they don't override operator-defined tasks.
+9. **Build Dashboard** — `python3 tools/scripts/build_cycle_dashboard.py`
 
-### Regular Cycle (cycle_position 1-4)
+### DATA Cycle (positions 1, 3 — 10 turns)
 
-1. **Feedback Gate** — check `work/feedback/` for files with `status: pending`. If any exist, process them FIRST per Escalation Response Processing rules. This takes priority over the planned task. Update affected artifacts (scoring_model.md, unit_economics.md, CLAUDE.md invariants, etc.) and set status to resolved.
+Cheap, mechanical. Minimize LLM reasoning — run scripts, save outputs, move on.
+
+1. **Feedback Gate** — check `work/feedback/` for files with `status: pending`. Process FIRST if any exist.
+2. Read task from `context/cycle_plan.md` (item #cycle_position)
+3. Execute: run script / scraper / download / data transformation
+4. Save raw output to `work/` or `out/`
+5. Write minimal stats report (lines collected, errors, new records)
+6. **NO Gemini offload required** (but log `No Gemini — DATA cycle` in report)
+7. **NO `./ask scan`** — skip compliance check (WORK cycle will catch issues)
+
+### WORK Cycle (positions 2, 4 — 20 turns)
+
+Full protocol. Reasoning, analysis, tool-building, escalations.
+
+1. **Feedback Gate** — check `work/feedback/` for files with `status: pending`. Process FIRST if any exist.
 2. Read task from `context/cycle_plan.md` (item #cycle_position)
 3. Если задача требует research >200 строк → **Gemini offload** (ОБЯЗАТЕЛЬНО, иначе = NEVER violation)
 4. Если задача требует решения Вадима → **эскалация** (ОБЯЗАТЕЛЬНО)
