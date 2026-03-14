@@ -22,7 +22,7 @@ basis: "applied to 2 real deals (Olympus Residence, Kveda Sameba)"
 |---|--------|--------------|--------|--------|
 | 1 | **NAPR API** | Ownership, mortgages, transactions | `napr_lookup.py` — no auth | ✅ Working |
 | 2 | **ArcGIS MapServer** | Parcel geometry, area, UNIQ_CODE | `arcgis_spatial.py` — HTTP only | ✅ Working |
-| 3 | **GeoServer WFS** | Coordinate → cadastral code | `wfs_cadastre.py` — no auth | 🟡 New (needs layer discovery) |
+| 3 | **ArcGIS point query** | Coordinate → cadastral code | `wfs_cadastre.py` — no auth | ✅ Working (via ArcGIS Layer 14) |
 | 4 | **Place.ge** | Listings: price, area, location | `place_ge_scraper.py` — XHR | ✅ Working |
 | 5 | **SS.ge** | Listings (40K DAU, main platform) | Official API exists, needs contact | 🔴 Blocked (awaiting Vadim) |
 | 6 | **Myhome.ge** | Listings | Anti-bot 403, needs headless | 🔴 Not started |
@@ -30,21 +30,23 @@ basis: "applied to 2 real deals (Olympus Residence, Kveda Sameba)"
 | 8 | **matsne.gov.ge** | Legislation, zoning, building codes | WebFetch works | 🟢 Available |
 | 9 | **Copernicus Sentinel-2** | Satellite imagery (10m resolution) | Free, account needed | 🟡 Not integrated |
 
-### WFS — The Missing Bridge
+### Coordinate → Cadastral Bridge
 
-Place.ge gives coordinates. NAPR needs cadastral codes. **WFS bridges this gap:**
+Place.ge gives coordinates. NAPR needs cadastral codes. `wfs_cadastre.py` bridges this gap via ArcGIS:
 ```bash
 # Point → cadastral code
 python3 tools/scripts/wfs_cadastre.py 41.7732 41.7286
 
-# Batch from Place.ge JSON
+# Batch from Place.ge JSON (skips listings that already have cadastral_code)
 python3 tools/scripts/wfs_cadastre.py --batch work/data/place_ge_coastal.json
 
-# Discover available layers first
-python3 tools/scripts/wfs_cadastre.py --layers
+# Wider search radius (default 100m)
+python3 tools/scripts/wfs_cadastre.py 41.7732 41.7286 --radius 200
 ```
 
-**Pipeline:** Place.ge listing → `wfs_cadastre.py` (coords→cadastral) → `napr_lookup.py` (cadastral→ownership) → `land_db.py` (store + score)
+**Note:** GeoServer WFS on nv.napr.gov.ge is **disabled** (returns ServiceException). Script uses ArcGIS Layer 14 instead.
+
+**Pipeline:** listing coords → `wfs_cadastre.py` (coords→UNIQ_CODE→cadastral) → `napr_lookup.py` (cadastral→ownership) → `land_db.py` (store + score)
 
 ---
 
