@@ -43,7 +43,27 @@ logging.basicConfig(
 )
 log = logging.getLogger("land_db")
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+
+MIGRATIONS = {
+    2: """
+-- v2: Add epistemology fields (confidence, verified_at, stale)
+ALTER TABLE listings ADD COLUMN confidence REAL DEFAULT 0.45;
+ALTER TABLE listings ADD COLUMN verified_at TEXT;
+ALTER TABLE listings ADD COLUMN stale INTEGER DEFAULT 0;
+ALTER TABLE parcels ADD COLUMN confidence REAL DEFAULT 0.85;
+ALTER TABLE parcels ADD COLUMN verified_at TEXT;
+ALTER TABLE parcels ADD COLUMN stale INTEGER DEFAULT 0;
+ALTER TABLE scores ADD COLUMN confidence REAL;
+-- Backfill scores.confidence from mode
+UPDATE scores SET confidence = CASE mode
+    WHEN 'remote' THEN 0.35
+    WHEN 'enriched' THEN 0.60
+    WHEN 'verified' THEN 0.85
+    ELSE 0.30
+END WHERE confidence IS NULL;
+""",
+}
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -69,6 +89,9 @@ CREATE TABLE IF NOT EXISTS listings (
     contact         TEXT,
     url             TEXT,
     scraped_at      TEXT,                  -- ISO timestamp
+    confidence      REAL    DEFAULT 0.45,  -- epistemology: L4 single source = 0.45
+    verified_at     TEXT,                  -- last verification date (NULL = never)
+    stale           INTEGER DEFAULT 0,     -- auto-set when scraped_at > 7-day SLA
     created_at      TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
     updated_at      TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
     PRIMARY KEY (source, id)
@@ -88,6 +111,9 @@ CREATE TABLE IF NOT EXISTS parcels (
     bbox_lon_min REAL,
     bbox_lat_max REAL,
     bbox_lon_max REAL,
+    confidence   REAL    DEFAULT 0.85,  -- epistemology: L2 official registry = 0.85
+    verified_at  TEXT,                  -- last verification date
+    stale        INTEGER DEFAULT 0,     -- auto-set when created_at > 30-day SLA
     created_at   TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
     updated_at   TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 );
@@ -116,6 +142,7 @@ CREATE TABLE IF NOT EXISTS scores (
     s5_cluster          REAL,  -- max 10
     total_score         REAL,  -- 0-100
     score_class         TEXT,  -- A/B/C/D/F
+    confidence          REAL,  -- epistemology: derived from mode (remote=0.35, enriched=0.60, verified=0.85)
     -- Metadata
     scored_at       TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
     notes           TEXT,
@@ -187,6 +214,38 @@ def compute_compactness(area_sqm: float, perimeter_m: float) -> Optional[float]:
     return (4 * math.pi * area_sqm) / (perimeter_m ** 2)
 
 
+def _get_db_version(conn: sqlite3.Connection) -> int:
+    """Get current schema version from DB, or 0 if not initialized."""
+    try:
+        row = conn.execute("SELECT value FROM schema_meta WHERE key='version'").fetchone()
+        return int(row[0]) if row else 0
+    except sqlite3.OperationalError:
+        return 0
+
+
+def _run_migrations(conn: sqlite3.Connection) -> None:
+    """Apply pending migrations."""
+    current = _get_db_version(conn)
+    for ver in sorted(MIGRATIONS.keys()):
+        if ver > current:
+            log.info("applying migration v%d", ver)
+            for stmt in MIGRATIONS[ver].strip().split(";"):
+                stmt = stmt.strip()
+                if stmt and not stmt.startswith("--"):
+                    try:
+                        conn.execute(stmt)
+                    except sqlite3.OperationalError as e:
+                        if "duplicate column" not in str(e).lower():
+                            raise
+                        log.debug("column already exists, skipping: %s", e)
+            conn.execute(
+                "INSERT OR REPLACE INTO schema_meta (key, value) VALUES (?, ?)",
+                ("version", str(ver)),
+            )
+            conn.commit()
+            log.info("migrated to v%d", ver)
+
+
 def init_db(db_path: Path) -> sqlite3.Connection:
     """Create database and initialize schema."""
     db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -199,6 +258,8 @@ def init_db(db_path: Path) -> sqlite3.Connection:
         ("version", str(SCHEMA_VERSION)),
     )
     conn.commit()
+    # Run any pending migrations for existing DBs
+    _run_migrations(conn)
     log.info("database initialized at %s (schema v%d)", db_path, SCHEMA_VERSION)
     return conn
 

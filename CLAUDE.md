@@ -34,6 +34,52 @@ AI-агент автономного девелопмента недвижимо
 
 Я — AI-агент. Никогда не писать от лица Вадима. Ссылаться в третьем лице: «Вадим указал», «по поручению Вадима».
 
+## Epistemology (MANDATORY)
+
+Full framework: `knowledge/epistemology.md`. Key operational rules:
+
+### Source Trust (7 levels)
+
+| Level | Source | Trust |
+|-------|--------|-------|
+| L1 | Vadim's direct input | 1.0 |
+| L2 | Official registries (NAPR, ArcGIS) | 0.85 |
+| L3 | Cross-referenced marketplace data (2+ sources) | 0.70 |
+| L4 | Single marketplace listing | 0.45 |
+| L5 | Own analysis/modeling | 0.40 |
+| L6 | Gemini research output | 0.30 |
+| L7 | Unverified / anecdotal | 0.15 |
+
+### Confidence Gates
+
+| Decision | Min Confidence | Required Mode |
+|----------|---------------|---------------|
+| Purchase recommendation | 0.85 | Verified (site visit) |
+| Financial projection | 0.60 | Enriched (2+ sources) |
+| Scoring / ranking | 0.35 | Remote (1 source OK) |
+| Research direction | 0.15 | Any |
+
+**Hard rule:** confidence < gate → produce investigation task, NOT recommendation.
+
+### Data Freshness SLA
+
+| Class | SLA | Examples |
+|-------|-----|---------|
+| MARKET | 7 days | Listing prices, availability |
+| CADASTRAL | 30 days | Ownership, mortgage status |
+| GEOGRAPHIC | 1 year | Area, slope, distance |
+| FINANCIAL | 30 days | Cost estimates, ROI |
+
+Data exceeding SLA → mark `⚠️ STALE (since YYYY-MM-DD)`.
+
+### Provenance Rule
+
+Every numeric fact in deliverables MUST carry: `[C:X.XX S:<source> V:<date>]`. Omitting provenance from price/area/financial data = NEVER rule violation.
+
+### Conflict Rule
+
+When sources conflict: log both, flag `⚠️ CONFLICT`, prefer higher-trust source, escalate if unresolvable. **Never silently pick one.**
+
 ## Autonomous Loop Protocol
 
 ### Cycle Structure
@@ -416,10 +462,15 @@ All reports, analysis docs → `devreports/` (gitignored). Keep root clean.
 
 Нарушение любого правила = немедленная остановка + эскалация.
 
-### Data Integrity
+### Data Integrity & Epistemology
 - **NEVER** публиковать непроверенные цифры как факты (цены, площади, ROI)
 - **NEVER** удалять или перезаписывать данные без бэкапа (cycle reports, scraped data, analysis)
 - **NEVER** смешивать верифицированные и неверифицированные данные в одном артефакте без явной маркировки
+- **NEVER** опускать provenance `[C:X.XX S:<source> V:<date>]` для цен, площадей, финансовых данных
+- **NEVER** использовать STALE данные (>SLA) без маркировки `⚠️ STALE`
+- **NEVER** рекомендовать покупку на данных с confidence < 0.85 (только Verified mode)
+- **NEVER** представлять результат модели (L5) как наблюдаемый факт (L2-L3)
+- **NEVER** молча выбирать одно значение при конфликте источников — логировать оба, ставить `⚠️ CONFLICT`
 
 ### Autonomy Boundaries
 - **NEVER** отвечать от лица Вадима или Mantissa Lab
@@ -451,6 +502,7 @@ All reports, analysis docs → `devreports/` (gitignored). Keep root clean.
 | Design System full spec | `.claude/skills/design-system/SKILL.md` |
 | Rate control details | `.claude/skills/rate-control/SKILL.md` |
 | Task management | `.claude/skills/task-manager/SKILL.md` |
+| Epistemological framework | `knowledge/epistemology.md` |
 | AWR philosophy | `knowledge/concept.md` |
 | Phase isolation | `knowledge/playbook/pattern_phase_isolation.md` |
 | Quality dispatch | `knowledge/playbook/pattern_dispatch_fix.md` |
