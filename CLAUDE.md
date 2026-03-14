@@ -178,7 +178,18 @@ This is better than producing 10 low-impact cycles that create noise.
 3. **Quality Check** — `./ask scan && ./ask h` — assess repo health. Run `./ask a` for violations
 4. **Auto-backlog** — collect violations from quality check → add to Auto tier in roadmap
 5. **Research** — Gemini offload: 2-3 web searches on market trends, new data sources, competitor analysis
-6. **Roadmap Review** — read `work/bets/plot_bot_roadmap.md`, review all 3 tiers (Roadmap > Auto > Research)
+6. **Schema Evolution Audit** — review data storage structures and assess coverage gaps:
+   - Read `tools/scripts/land_db.py` schema (tables, columns, indexes)
+   - Read `work/scoring_model.md` factors and weights
+   - Cross-reference with data actually collected in `work/data/` — what fields are populated vs empty?
+   - Check cycle reports for data that was encountered but had nowhere to store (e.g. slope, soil type, view quality, road distance, utility availability)
+   - **If new property types or data dimensions discovered:**
+     a) Document the gap: what data, why it matters for scoring, which source provides it
+     b) Propose schema migration (new columns/tables) in roadmap Auto tier
+     c) Estimate coverage improvement: "adding field X would enable scoring factor Y (weight Z%)"
+   - Target: every mega-cycle should either confirm "schema is sufficient" or identify ≥1 improvement
+   - Track coverage metric: `scored_factors / total_factors` in scoring_model.md (currently ~43%)
+7. **Roadmap Review** — read `work/bets/plot_bot_roadmap.md`, review all 3 tiers (Roadmap > Auto > Research)
 7. **Plan Next 4** — write `context/cycle_plan.md` with exactly 4 tasks:
    - Position 1 (DATA), Position 2 (WORK), Position 3 (DATA), Position 4 (WORK)
    - Each task: linked North Star + source tier + subtype + class (DATA/WORK)
