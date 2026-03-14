@@ -29,4 +29,4 @@ Pending escalations: 2 (SS.ge API, invariants)
 | 3 | 0314 | FULL | A | Land scoring model: factors, weights, methodology | 4 | V,R | 3 | 0 | 95aa32d |
 | 4 | 0314 | FULL | B | Data storage: SQLite schema + ETL for listings/parcels | 4 | E,R | 1 | 0 | 106c8a2 |
 | 5 | 0314 | FULL | X | SS.ge API access + invariants/criteria escalation | 4 | V | 3 | 2 | 43346e9 |
-| 6 | 0314 | FULL | M | META: retrospective + plan mega-cycle 1 | — | — | 4 | 0 | — |
+| 6 | 0314 | FULL | M | META: retrospective + plan mega-cycle 1 | — | — | 4 | 0 | b33a765 |
