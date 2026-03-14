@@ -8,6 +8,7 @@ Usage:
     python3 tools/scripts/build_cycle_dashboard.py
 """
 
+import glob
 import json
 import re
 import subprocess
@@ -19,12 +20,92 @@ PROGRESS_FILE = REPO / "work" / "CYCLE_PROGRESS.md"
 STATE_FILE = REPO / "context" / "state.json"
 HEARTBEAT_FILE = REPO / "context" / "heartbeat.json"
 PAUSE_FILE = REPO / "context" / "agent_paused"
+CONFIG_FILE = REPO / "context" / "agent_config.json"
 ROADMAP_FILE = REPO / "work" / "bets" / "plot_bot_roadmap.md"
 OUTPUT_FILE = REPO / "devreports" / "cycle_dashboard.html"
 AGENT_PLIST_LABEL = "com.mantissa.plot-bot"
 AGENT_PLIST_PATH = Path.home() / "Library" / "LaunchAgents" / f"{AGENT_PLIST_LABEL}.plist"
+SESSIONS_DIR = Path.home() / ".claude" / "projects" / "-Users-polansk-Developer-mantissa-code-plot-bot"
 
 # --- Data Parsing ---
+
+
+def parse_agent_config() -> dict:
+    """Read agent_config.json."""
+    if not CONFIG_FILE.exists():
+        return {}
+    try:
+        return json.loads(CONFIG_FILE.read_text())
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def parse_rate_control() -> dict:
+    """Get rate control data from claude_limits.mjs."""
+    try:
+        r = subprocess.run(
+            ["node", str(Path.home() / ".claude" / "rate-control" / "claude_limits.mjs"), "--json"],
+            capture_output=True, text=True, timeout=10,
+            env={**__import__("os").environ, "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"},
+        )
+        if r.returncode == 0 and r.stdout.strip():
+            d = json.loads(r.stdout)
+            w = d.get("windows", {}).get("7d", {})
+            return {
+                "pct": w.get("pct", 0),
+                "spent": w.get("spent", 0),
+                "limit": w.get("limit", 0),
+                "days_left": w.get("days_left", 0),
+            }
+    except Exception:
+        pass
+    return {"pct": 0, "spent": 0, "limit": 0, "days_left": 0}
+
+
+def parse_session_tokens() -> dict:
+    """Sum token usage from all plot-bot JSONL sessions."""
+    total_input = 0
+    total_output = 0
+    total_cache_read = 0
+    session_count = 0
+    current_input = 0
+    current_output = 0
+
+    jsonl_files = sorted(glob.glob(str(SESSIONS_DIR / "*.jsonl")))
+    for fpath in jsonl_files:
+        session_in = 0
+        session_out = 0
+        try:
+            with open(fpath) as f:
+                for line in f:
+                    try:
+                        d = json.loads(line)
+                        u = d.get("message", {}).get("usage", {})
+                        if u:
+                            session_in += u.get("input_tokens", 0)
+                            session_out += u.get("output_tokens", 0)
+                            total_cache_read += u.get("cache_read_input_tokens", 0)
+                    except (json.JSONDecodeError, KeyError):
+                        pass
+        except OSError:
+            continue
+        if session_in > 0 or session_out > 0:
+            session_count += 1
+            total_input += session_in
+            total_output += session_out
+            current_input = session_in
+            current_output = session_out
+
+    return {
+        "total_input": total_input,
+        "total_output": total_output,
+        "total_cache_read": total_cache_read,
+        "total": total_input + total_output,
+        "sessions": session_count,
+        "current_input": current_input,
+        "current_output": current_output,
+        "current_total": current_input + current_output,
+    }
 
 
 def parse_progress() -> list[dict]:
@@ -182,9 +263,25 @@ def parse_heartbeat() -> dict:
         return {"status": "unknown", "cycle": 0, "timestamp": ""}
 
 
-def _live_banner_html(hb: dict, is_paused: bool = False) -> str:
+def _format_tokens(n: int) -> str:
+    """Format token count: 1234 → 1.2K, 1234567 → 1.2M."""
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f}M"
+    if n >= 1_000:
+        return f"{n / 1_000:.1f}K"
+    return str(n)
+
+
+def _live_banner_html(
+    hb: dict, is_paused: bool = False, rate: dict | None = None,
+    tokens: dict | None = None, config: dict | None = None,
+) -> str:
     """Generate live status banner HTML from heartbeat data."""
     runner_alive = _is_runner_alive()
+    rate = rate or {}
+    tokens = tokens or {}
+    config = config or {}
+
     status = hb.get("status", "unknown")
     cycle = hb.get("cycle", 0)
     ctype = hb.get("cycle_type", "?")
@@ -208,6 +305,24 @@ def _live_banner_html(hb: dict, is_paused: bool = False) -> str:
         except (ValueError, TypeError):
             elapsed = ""
 
+    # Info bar: rate + tokens + account (shown below main banner)
+    rate_pct = rate.get("pct", hb.get("rate_pct", 0))
+    rate_color = "#3D9E8F" if rate_pct < 60 else "#C4A24D" if rate_pct < 80 else "#C75D4A"
+    current_tok = _format_tokens(tokens.get("current_total", 0))
+    total_tok = _format_tokens(tokens.get("total", 0))
+    account = config.get("account_email", "—")
+    model = config.get("model", hb.get("model", "—"))
+
+    info_bar = (
+        f'<div class="live-info">'
+        f'<span class="live-info-item">Account: <strong>{account}</strong></span>'
+        f'<span class="live-info-item">Model: <strong>{model}</strong></span>'
+        f'<span class="live-info-item">Rate: <strong style="color:{rate_color}">{rate_pct:.1f}%</strong></span>'
+        f'<span class="live-info-item">This cycle: <strong>{current_tok}</strong> tok</span>'
+        f'<span class="live-info-item">All cycles: <strong>{total_tok}</strong> tok</span>'
+        f'</div>'
+    )
+
     if status == "running":
         return (
             f'<div class="live-banner live-running">'
@@ -215,7 +330,7 @@ def _live_banner_html(hb: dict, is_paused: bool = False) -> str:
             f'<span class="live-label">Running cycle #{cycle}</span>'
             f'<span class="live-detail">{ctype} | {mode} mode | PID {pid}</span>'
             f'<span class="live-time">{elapsed}</span>'
-            f'</div>'
+            f'</div>{info_bar}'
         )
     elif status == "cooldown":
         cooldown_s = hb.get("cooldown_seconds", 300)
@@ -225,7 +340,7 @@ def _live_banner_html(hb: dict, is_paused: bool = False) -> str:
             f'<span class="live-label">Cooldown</span>'
             f'<span class="live-detail">After cycle #{cycle} | {cooldown_s}s pause</span>'
             f'<span class="live-time">{elapsed} ago</span>'
-            f'</div>'
+            f'</div>{info_bar}'
         )
     elif status == "completed":
         return (
@@ -234,7 +349,7 @@ def _live_banner_html(hb: dict, is_paused: bool = False) -> str:
             f'<span class="live-label">Completed cycle #{cycle}</span>'
             f'<span class="live-detail">{ctype} | awaiting next</span>'
             f'<span class="live-time">{elapsed} ago</span>'
-            f'</div>'
+            f'</div>{info_bar}'
         )
     elif status == "paused":
         return (
@@ -243,7 +358,7 @@ def _live_banner_html(hb: dict, is_paused: bool = False) -> str:
             f'<span class="live-label">Paused by operator</span>'
             f'<span class="live-detail">After cycle #{cycle} | waiting for resume</span>'
             f'<span class="live-time">{elapsed}</span>'
-            f'</div>'
+            f'</div>{info_bar}'
         )
     elif status in ("failed", "timeout"):
         exit_code = hb.get("exit_code", "?")
@@ -253,7 +368,7 @@ def _live_banner_html(hb: dict, is_paused: bool = False) -> str:
             f'<span class="live-label">{"Timed out" if status == "timeout" else "Failed"}: cycle #{cycle}</span>'
             f'<span class="live-detail">exit={exit_code}</span>'
             f'<span class="live-time">{elapsed} ago</span>'
-            f'</div>'
+            f'</div>{info_bar}'
         )
     else:
         if is_paused:
@@ -271,7 +386,7 @@ def _live_banner_html(hb: dict, is_paused: bool = False) -> str:
             f'<span class="live-label">{label}</span>'
             f'<span class="live-detail">{detail}</span>'
             f'<span class="live-time">{elapsed}</span>'
-            f'</div>'
+            f'</div>{info_bar}'
         )
 
 
@@ -287,27 +402,35 @@ def _is_runner_alive() -> bool:
         return False
 
 
-def _agent_control_html(is_paused: bool) -> str:
-    """Generate pause/start button HTML."""
+def _agent_control_html(heartbeat_status: str) -> str:
+    """Generate pause/start button HTML based on heartbeat status."""
     runner_alive = _is_runner_alive()
-    if is_paused or not runner_alive:
+    # Show Pause when agent is actively running or in cooldown
+    if runner_alive and heartbeat_status in ("running", "cooldown"):
         return (
-            '<button class="agent-ctrl agent-ctrl-start" id="agent-ctrl" onclick="agentControl(\'start\')">'
-            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>'
-            'Start Agent'
+            '<button class="agent-ctrl agent-ctrl-pause" id="agent-ctrl" onclick="agentControl(\'pause\')">'
+            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>'
+            'Pause Agent'
             '</button>'
         )
     return (
-        '<button class="agent-ctrl agent-ctrl-pause" id="agent-ctrl" onclick="agentControl(\'pause\')">'
-        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>'
-        'Pause Agent'
+        '<button class="agent-ctrl agent-ctrl-start" id="agent-ctrl" onclick="agentControl(\'start\')">'
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>'
+        'Start Agent'
         '</button>'
     )
 
 
-def build_html(cycles: list[dict], state: dict, roadmap: dict, heartbeat: dict, is_paused: bool = False) -> str:
+def build_html(
+    cycles: list[dict], state: dict, roadmap: dict, heartbeat: dict,
+    is_paused: bool = False, rate: dict | None = None, tokens: dict | None = None,
+    config: dict | None = None,
+) -> str:
     """Generate the full dashboard HTML."""
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    rate = rate or {}
+    tokens = tokens or {}
+    config = config or {}
 
     # KPIs
     total_cycles = len(cycles)
@@ -527,6 +650,9 @@ h1 {{ font-family:'Newsreader',Georgia,serif; font-size:28px; font-weight:600; l
 .live-label {{ font-weight:500; }}
 .live-detail {{ color:var(--c-muted); }}
 .live-time {{ font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--c-muted); margin-left:auto; }}
+.live-info {{ display:flex; gap:16px; padding:6px 20px; font-size:11px; color:var(--c-muted); flex-wrap:wrap; }}
+.live-info-item {{ white-space:nowrap; }}
+.live-info-item strong {{ color:var(--c-ink); font-weight:500; }}
 
 /* Agent control button */
 .agent-ctrl {{ display:inline-flex; align-items:center; gap:6px; padding:6px 16px; border-radius:var(--radius); border:1px solid var(--c-subtle); background:var(--c-card); color:var(--c-ink); font-size:12px; font-weight:500; cursor:pointer; transition:all 150ms; margin-left:12px; }}
@@ -568,12 +694,12 @@ h1 {{ font-family:'Newsreader',Georgia,serif; font-size:28px; font-weight:600; l
 
 <div style="display:flex;align-items:baseline;gap:12px;">
 <h1>Plot Bot</h1>
-{_agent_control_html(is_paused)}
+{_agent_control_html(heartbeat.get("status", "unknown"))}
 </div>
 <p class="subtitle">Cycle Dashboard — generated {now}</p>
 
 <!-- Live Status -->
-{_live_banner_html(heartbeat, is_paused=is_paused)}
+{_live_banner_html(heartbeat, is_paused=is_paused, rate=rate, tokens=tokens, config=config)}
 
 <!-- Status -->
 <div class="status">
@@ -844,8 +970,11 @@ def build_once() -> None:
     heartbeat = parse_heartbeat()
     roadmap = parse_roadmap()
     paused = PAUSE_FILE.exists()
+    rate = parse_rate_control()
+    tokens = parse_session_tokens()
+    config = parse_agent_config()
 
-    html = build_html(cycles, state, roadmap, heartbeat, is_paused=paused)
+    html = build_html(cycles, state, roadmap, heartbeat, is_paused=paused, rate=rate, tokens=tokens, config=config)
     OUTPUT_FILE.write_text(html)
     print(f"Dashboard built: {OUTPUT_FILE}")
     print(f"  Cycles: {len(cycles)}, Roadmap: {roadmap['done']}/{roadmap['total']}")
@@ -895,7 +1024,10 @@ def serve(port: int = 3000) -> None:
                 heartbeat = parse_heartbeat()
                 roadmap = parse_roadmap()
                 paused = PAUSE_FILE.exists()
-                html = build_html(cycles, state, roadmap, heartbeat, is_paused=paused)
+                rate = parse_rate_control()
+                tokens = parse_session_tokens()
+                config = parse_agent_config()
+                html = build_html(cycles, state, roadmap, heartbeat, is_paused=paused, rate=rate, tokens=tokens, config=config)
                 body = html.encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
