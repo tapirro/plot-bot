@@ -50,90 +50,94 @@ ZONES: list[tuple[str, float, float, float, float]] = [
 ]
 
 
+PAGE_LIMIT = 500  # ArcGIS server max per request
+
+
 def count_parcels(
     bbox: tuple[float, float, float, float],
 ) -> dict[str, Any]:
-    """Count parcels in bbox using returnCountOnly."""
+    """Count parcels in bbox by paginating via OBJECTID.
+
+    This ArcGIS server doesn't support returnCountOnly or returnIdsOnly,
+    so we paginate with 'OBJECTID > N' and outFields=OBJECTID only.
+    """
     xmin, ymin, xmax, ymax = bbox
-    params = urllib.parse.urlencode({
-        "where": "1=1",
-        "geometry": json.dumps({
-            "xmin": xmin, "ymin": ymin,
-            "xmax": xmax, "ymax": ymax,
-            "spatialReference": {"wkid": 4326},
-        }),
-        "geometryType": "esriGeometryEnvelope",
-        "inSR": "4326",
-        "spatialRel": "esriSpatialRelIntersects",
-        "returnCountOnly": "true",
-        "f": "json",
+    geom = json.dumps({
+        "xmin": xmin, "ymin": ymin,
+        "xmax": xmax, "ymax": ymax,
+        "spatialReference": {"wkid": 4326},
     })
-    url = f"{ARCGIS_URL}?{params}"
-    req = urllib.request.Request(url, headers={"User-Agent": "plot-bot/1.0"})
+
+    total = 0
+    max_oid = 0
+    areas: list[float] = []
 
     try:
-        with urllib.request.urlopen(req, timeout=20) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            return {"count": data.get("count", 0), "error": None}
-    except Exception as e:
-        return {"count": 0, "error": str(e)}
+        while True:
+            params = urllib.parse.urlencode({
+                "where": f"OBJECTID > {max_oid}",
+                "geometry": geom,
+                "geometryType": "esriGeometryEnvelope",
+                "inSR": "4326",
+                "spatialRel": "esriSpatialRelIntersects",
+                "outFields": "OBJECTID,SHAPE.AREA",
+                "returnGeometry": "false",
+                "f": "json",
+            })
+            url = f"{ARCGIS_URL}?{params}"
+            req = urllib.request.Request(url, headers={"User-Agent": "plot-bot/1.0"})
 
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
 
-def get_area_stats(
-    bbox: tuple[float, float, float, float],
-    sample_size: int = 50,
-) -> dict[str, Any]:
-    """Get area distribution from a sample of parcels in bbox."""
-    xmin, ymin, xmax, ymax = bbox
-    params = urllib.parse.urlencode({
-        "where": "1=1",
-        "geometry": json.dumps({
-            "xmin": xmin, "ymin": ymin,
-            "xmax": xmax, "ymax": ymax,
-            "spatialReference": {"wkid": 4326},
-        }),
-        "geometryType": "esriGeometryEnvelope",
-        "inSR": "4326",
-        "spatialRel": "esriSpatialRelIntersects",
-        "outFields": "SHAPE.AREA,UNIQ_CODE",
-        "returnGeometry": "false",
-        "resultRecordCount": str(sample_size),
-        "f": "json",
-    })
-    url = f"{ARCGIS_URL}?{params}"
-    req = urllib.request.Request(url, headers={"User-Agent": "plot-bot/1.0"})
-
-    try:
-        with urllib.request.urlopen(req, timeout=20) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
             features = data.get("features", [])
-            areas = []
+            if not features:
+                break
+
+            total += len(features)
+
+            # Collect areas for stats
             for f in features:
-                a = f.get("attributes", {}).get("SHAPE.AREA")
+                attrs = f.get("attributes", {})
+                oid = attrs.get("OBJECTID", 0)
+                if oid > max_oid:
+                    max_oid = oid
+                a = attrs.get("SHAPE.AREA")
                 if a:
                     try:
                         areas.append(float(a))
                     except (ValueError, TypeError):
                         pass
 
-            if not areas:
-                return {}
+            # If fewer than PAGE_LIMIT, we got all results
+            if len(features) < PAGE_LIMIT:
+                break
 
-            areas.sort()
-            n = len(areas)
-            return {
-                "sample_size": n,
-                "min_m2": round(min(areas), 1),
-                "max_m2": round(max(areas), 1),
-                "median_m2": round(areas[n // 2], 1),
-                "mean_m2": round(sum(areas) / n, 1),
-                "over_500m2": sum(1 for a in areas if a >= 500),
-                "over_1000m2": sum(1 for a in areas if a >= 1000),
-                "over_3000m2": sum(1 for a in areas if a >= 3000),
-                "pct_over_3000m2": round(sum(1 for a in areas if a >= 3000) / n * 100, 1),
-            }
-    except Exception:
+            time.sleep(0.3)
+
+        return {"count": total, "areas": areas, "error": None}
+    except Exception as e:
+        return {"count": total, "areas": areas, "error": str(e)}
+
+
+def compute_area_stats(areas: list[float]) -> dict[str, Any]:
+    """Compute area distribution stats from collected areas."""
+    if not areas:
         return {}
+
+    areas.sort()
+    n = len(areas)
+    return {
+        "sample_size": n,
+        "min_m2": round(min(areas), 1),
+        "max_m2": round(max(areas), 1),
+        "median_m2": round(areas[n // 2], 1),
+        "mean_m2": round(sum(areas) / n, 1),
+        "over_500m2": sum(1 for a in areas if a >= 500),
+        "over_1000m2": sum(1 for a in areas if a >= 1000),
+        "over_3000m2": sum(1 for a in areas if a >= 3000),
+        "pct_over_3000m2": round(sum(1 for a in areas if a >= 3000) / n * 100, 1),
+    }
 
 
 def count_listings_in_db(db_path: str) -> dict[str, int]:
@@ -177,12 +181,15 @@ def main() -> None:
     }
 
     total = 0
+    all_areas: list[float] = []
     for name, xmin, ymin, xmax, ymax in ZONES:
-        print(f"  {name:15s} ...", end="", file=sys.stderr)
+        print(f"  {name:15s} ...", end="", flush=True, file=sys.stderr)
         bbox = (xmin, ymin, xmax, ymax)
         data = count_parcels(bbox)
         count = data["count"]
         total += count
+        areas = data.get("areas", [])
+        all_areas.extend(areas)
 
         zone_data: dict[str, Any] = {
             "name": name,
@@ -196,14 +203,13 @@ def main() -> None:
         else:
             print(f" {count:>6,} parcels", file=sys.stderr)
 
-        if args.detailed and count > 0 and not data["error"]:
-            time.sleep(0.5)
-            stats = get_area_stats(bbox)
-            if stats:
-                zone_data["area_stats"] = stats
+        if areas:
+            stats = compute_area_stats(areas)
+            zone_data["area_stats"] = stats
+            if args.detailed:
                 pct = stats.get("pct_over_3000m2", 0)
                 print(f"{'':17s} median={stats['median_m2']:.0f}m², "
-                      f"≥3000m²={pct}% of sample", file=sys.stderr)
+                      f"≥3000m²={pct}%", file=sys.stderr)
 
         results["zones"].append(zone_data)
         time.sleep(0.3)
@@ -228,15 +234,16 @@ def main() -> None:
     print(f"LISTINGS:  {db_listings:>8,}", file=sys.stderr)
     print(f"SCORED:    {db_scores:>8,} ({db_scores/total*100:.1f}%)" if total else "", file=sys.stderr)
 
-    # Estimate relevant parcels (≥500m² based on sample ratios)
-    relevant_zones = [z for z in results["zones"] if z.get("area_stats")]
-    if relevant_zones:
-        avg_pct_large = sum(
-            z["area_stats"]["pct_over_3000m2"] for z in relevant_zones
-        ) / len(relevant_zones)
-        estimated_relevant = int(total * avg_pct_large / 100)
-        results["estimated_relevant_3000m2"] = estimated_relevant
-        print(f"EST. ≥3000m²: {estimated_relevant:>5,} parcels (~{avg_pct_large:.0f}% of universe)", file=sys.stderr)
+    # Compute relevant parcels from actual data
+    if all_areas:
+        total_stats = compute_area_stats(all_areas)
+        results["area_stats_total"] = total_stats
+        over_3k = total_stats.get("over_3000m2", 0)
+        over_500 = total_stats.get("over_500m2", 0)
+        results["relevant_3000m2"] = over_3k
+        results["relevant_500m2"] = over_500
+        print(f"≥500m²:    {over_500:>8,} parcels ({over_500/total*100:.1f}%)" if total else "", file=sys.stderr)
+        print(f"≥3000m²:   {over_3k:>8,} parcels ({over_3k/total*100:.1f}%) ← target for scoring", file=sys.stderr)
 
     # Output
     if args.json or args.output:
