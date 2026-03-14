@@ -1,0 +1,46 @@
+# Domain Registry — Plot Bot
+# Single source of truth for plot-bot domain identity.
+
+domains:
+  - id: plot-bot
+    name: Plot Bot — AI Real Estate Developer
+    lifecycle: incubating
+    type: organization
+    owner: vadim
+    parent: mantissa
+    description: AI-driven real estate development on Georgian coastline
+
+  - id: plot-bot/land
+    name: Земельный анализ
+    lifecycle: proposed
+    type: domain
+    owner: vadim
+    parent: plot-bot
+
+  - id: plot-bot/legal
+    name: Юридическая подсистема
+    lifecycle: proposed
+    type: domain
+    owner: vadim
+    parent: plot-bot
+
+  - id: plot-bot/finance
+    name: Финансовая машинка
+    lifecycle: proposed
+    type: domain
+    owner: vadim
+    parent: plot-bot
+
+  - id: plot-bot/marketing
+    name: Маркетинг и продажи
+    lifecycle: proposed
+    type: domain
+    owner: vadim
+    parent: plot-bot
+
+  - id: plot-bot/services
+    name: Экосистема сервисов
+    lifecycle: proposed
+    type: domain
+    owner: vadim
+    parent: plot-bot

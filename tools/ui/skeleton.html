@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Name — Mantissa</title>
+    <link rel="stylesheet" href="base.css">
+    <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
+    <script src="theme.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Newsreader:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+    <style>
+    /* Dashboard-specific styles only. Shared styles are in base.css. */
+    </style>
+</head>
+<body class="bg-page text-ink font-sans antialiased">
+
+    <!-- nav.js injects <header> and <footer> automatically -->
+
+    <main class="max-w-page mx-auto px-6 py-8">
+
+        <!-- Hero -->
+        <section class="mb-10">
+            <h1 class="font-serif text-3xl text-ink mb-2">Dashboard Name</h1>
+            <p class="text-muted text-sm">Brief description of this dashboard's purpose.</p>
+        </section>
+
+        <!-- Metric cards -->
+        <section class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
+            <div class="bg-card rounded-card card-edges p-5">
+                <div class="text-faint text-xs font-mono uppercase tracking-wide mb-1">Metric A</div>
+                <div class="text-2xl font-serif text-ink">0</div>
+            </div>
+            <div class="bg-card rounded-card card-edges p-5">
+                <div class="text-faint text-xs font-mono uppercase tracking-wide mb-1">Metric B</div>
+                <div class="text-2xl font-serif text-ink">0</div>
+            </div>
+            <div class="bg-card rounded-card card-edges p-5">
+                <div class="text-faint text-xs font-mono uppercase tracking-wide mb-1">Metric C</div>
+                <div class="text-2xl font-serif text-ink">0</div>
+            </div>
+            <div class="bg-card rounded-card card-edges p-5">
+                <div class="text-faint text-xs font-mono uppercase tracking-wide mb-1">Metric D</div>
+                <div class="text-2xl font-serif text-ink">0</div>
+            </div>
+        </section>
+
+        <!-- Content area -->
+        <section class="bg-card rounded-card card-edges p-6">
+            <h2 class="font-serif text-xl text-ink mb-4">Section Title</h2>
+            <!-- YOUR CONTENT HERE -->
+            <p class="text-muted text-sm">Replace this with your dashboard content.</p>
+        </section>
+
+    </main>
+
+    <script src="nav.js"></script>
+    <script>
+    // Dashboard logic here
+    // Use fetch('/api/ask/...') to get data from the ask CLI
+    // Use fetch('/api/...') for other server endpoints
+    </script>
+</body>
+</html>

@@ -1,0 +1,287 @@
+# Block contracts — quality requirements per (type, role)
+#
+# Format:
+#   type.role:
+#     min: N          # minimum useful lines (below = stub)
+#     max: N          # maximum before splitting (above = bloated)
+#     format: list|table|prose|code|any   # expected content format
+#     required: true  # must be present (complements blockSchemas)
+#
+# Violation types:
+#   stub     — block < min lines (not distilled enough)
+#   bloated  — block > max lines (needs splitting)
+#   missing  — required block absent
+#   hollow   — ## header exists but 0 content lines (real content in ### subsections)
+#   format   — expected format not found (table but no |, list but no -, etc.)
+
+# ── Pattern ──────────────────────────────────────────────
+
+pattern.problem:
+  min: 3
+  max: 30
+  format: prose
+  required: true
+
+pattern.solution:
+  min: 5
+  max: 60
+  format: any
+  required: true
+
+pattern.implementation:
+  min: 3
+  max: 250
+  format: any
+  required: false
+
+pattern.examples:
+  min: 3
+  max: 50
+  format: any
+  required: false
+
+pattern.traps:
+  min: 2
+  max: 30
+  format: list
+  required: false
+
+pattern.when-to-use:
+  min: 2
+  max: 20
+  format: any
+  required: false
+
+pattern.adaptation:
+  min: 3
+  max: 50
+  format: any
+  required: false
+
+pattern.origin:
+  min: 1
+  max: 15
+  format: any
+  required: false
+
+pattern.references:
+  min: 1
+  max: 20
+  format: list
+  required: false
+
+# ── Methodology ──────────────────────────────────────────
+
+methodology.problem:
+  min: 3
+  max: 30
+  format: prose
+  required: true
+
+methodology.solution:
+  min: 5
+  max: 80
+  format: any
+  required: true
+
+methodology.implementation:
+  min: 3
+  max: 250
+  format: any
+  required: false
+
+methodology.workflow:
+  min: 3
+  max: 60
+  format: any
+  required: false
+
+methodology.adaptation:
+  min: 3
+  max: 50
+  format: any
+  required: false
+
+methodology.origin:
+  min: 1
+  max: 15
+  format: any
+  required: false
+
+methodology.references:
+  min: 1
+  max: 20
+  format: list
+  required: false
+
+# ── Insight ──────────────────────────────────────────────
+
+insight.summary:
+  min: 3
+  max: 20
+  format: prose
+  required: false
+
+insight.classification:
+  min: 2
+  max: 15
+  format: any
+  required: false
+
+insight.analysis:
+  min: 5
+  max: 150
+  format: any
+  required: false
+
+insight.decisions:
+  min: 1
+  max: 30
+  format: any
+  required: true
+
+insight.actions:
+  min: 1
+  max: 30
+  format: any
+  required: true
+
+insight.open-questions:
+  min: 1
+  max: 25
+  format: any
+  required: false
+
+insight.references:
+  min: 1
+  max: 60
+  format: any
+  required: true
+
+insight.participants:
+  min: 3
+  max: 40
+  format: table
+  required: false
+
+insight.findings:
+  min: 3
+  max: 200
+  format: any
+  required: false
+
+# ── Deal ─────────────────────────────────────────────────
+
+deal.offer:
+  min: 5
+  max: 40
+  format: any
+  required: true
+
+deal.analysis:
+  min: 10
+  max: 80
+  format: any
+  required: false
+
+deal.verdict:
+  min: 5
+  max: 30
+  format: any
+  required: false
+
+# ── Topic ────────────────────────────────────────────────
+
+topic.context:
+  min: 2
+  max: 30
+  format: prose
+  required: false
+
+topic.options:
+  min: 3
+  max: 40
+  format: list
+  required: false
+
+topic.decision:
+  min: 2
+  max: 20
+  format: any
+  required: false
+
+# ── Report ───────────────────────────────────────────────
+
+report.summary:
+  min: 3
+  max: 25
+  format: prose
+  required: false
+
+report.findings:
+  min: 5
+  max: 100
+  format: any
+  required: false
+
+report.recommendations:
+  min: 3
+  max: 40
+  format: list
+  required: false
+
+# ── Guide ────────────────────────────────────────────────
+
+guide.summary:
+  min: 2
+  max: 20
+  format: prose
+  required: false
+
+guide.workflow:
+  min: 3
+  max: 60
+  format: any
+  required: false
+
+guide.references:
+  min: 1
+  max: 20
+  format: list
+  required: false
+
+# ── Bet ─────────────────────────────────────────────────
+
+bet.metrics:
+  min: 1
+  max: 30
+  format: any
+  required: true
+
+bet.next-experiment:
+  min: 2
+  max: 30
+  format: any
+  required: true
+
+bet.actions:
+  min: 1
+  max: 40
+  format: list
+  required: false
+
+# ── Maintenance ─────────────────────────────────────────
+
+maintenance.metrics:
+  min: 1
+  max: 20
+  format: any
+  required: true
+
+# ── Domain ──────────────────────────────────────────────
+
+domain.scope:
+  min: 2
+  max: 30
+  format: any
+  required: true

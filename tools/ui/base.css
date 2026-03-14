@@ -1,0 +1,145 @@
+/*
+ * Mantissa Design System — Base CSS
+ * v1.0 | Source of truth for CSS variables + custom components
+ *
+ * Usage: <link rel="stylesheet" href="base.css"> in each dashboard HTML.
+ * Tailwind config: <script src="theme.js"></script> (after Tailwind CDN).
+ * Template: skeleton.html — clean starting point for new dashboards.
+ *
+ * Spec:     work/topics/2026-03-08_design-system/DESIGN_SYSTEM.md
+ * Proto:    tools/ui/observatory.html
+ */
+
+/* ===== THEME VARIABLES ===== */
+:root {
+  --c-page:      #FCFCF4;   /* Warm ivory */
+  --c-card:      #F0EDE4;   /* Warmer ivory */
+  --c-ink:       #191918;   /* Near-black text */
+  --c-muted:     #7C7C87;   /* Secondary text */
+  --c-faint:     #A8A8A8;   /* Tertiary text */
+  --c-subtle:    #E8E5DE;   /* Borders, separators */
+  --c-highlight: #F5F2EA;   /* Hover state */
+  --c-footer:    #191918;   /* Footer background */
+  --bar-track:   #E8E5DE;   /* Bar chart track */
+  --c-edge-top:  #FFFFFF;   /* Card top edge — lighter than card bg */
+  --c-edge-bot:  #DDD9D0;   /* Card bottom edge — darker than card bg */
+}
+.dark {
+  --c-page:      #141413;
+  --c-card:      #1E1E1D;
+  --c-ink:       #EDEDEC;
+  --c-muted:     #929292;
+  --c-faint:     #5E5E5E;
+  --c-subtle:    #2A2A29;
+  --c-highlight: #222221;
+  --c-footer:    #0D0D0C;
+  --bar-track:   #2A2A29;
+  --c-edge-top:  #333333;   /* Light from above */
+  --c-edge-bot:  #111111;   /* Shadow below */
+}
+
+/* ===== SEMANTIC CODING — VERA MEANINGS ===== */
+/*
+ * VERA: 4 meanings of the Meaning-Driven Agent System.
+ * Order: Value → Elegance → Reliability → Awareness (V-E-R-A).
+ * Each has: main color, light bg, text-on-light (auto-switches in dark mode).
+ * Use for any meaning-coded UI: dots, rings, badges, heatmaps, filter tabs.
+ *
+ * Value (V)       — gold:  harvest, tangible result for real people
+ * Elegance (E)    — teal:  precision, minimum means maximum effect
+ * Reliability (R) — steel: foundation, works when nobody watches
+ * Awareness (A)   — iris:  observation, see what is, know blind spots
+ */
+:root {
+  --m-elegance:       #3D9E8F;  --m-elegance-light:  #D9F0EC;  --m-elegance-text:  #14655A;
+  --m-value:          #C4A24D;  --m-value-light:     #F5EDD4;  --m-value-text:     #7A6420;
+  --m-reliability:    #6B7B8D;  --m-reliability-light:#DDE3E8; --m-reliability-text:#3D4E5C;
+  --m-awareness:      #8B7EC8;  --m-awareness-light: #E5E0F5;  --m-awareness-text: #4E4188;
+}
+.dark {
+  --m-elegance:       #66B5A8;  --m-elegance-light:  rgba(61,158,143,0.20);  --m-elegance-text:  #B8E0D9;
+  --m-value:          #D4B86A;  --m-value-light:     rgba(196,162,77,0.20);  --m-value-text:     #F5EDD4;
+  --m-reliability:    #8FA0B0;  --m-reliability-light:rgba(107,123,141,0.20);--m-reliability-text:#DDE3E8;
+  --m-awareness:      #A99ADB;  --m-awareness-light: rgba(139,126,200,0.20); --m-awareness-text: #E5E0F5;
+}
+
+/* Meaning dot: <span class="m-dot m-elegance"></span> */
+.m-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.m-elegance    { background: var(--m-elegance); }
+.m-value       { background: var(--m-value); }
+.m-reliability { background: var(--m-reliability); }
+.m-awareness   { background: var(--m-awareness); }
+
+/* Meaning ring: <div class="m-ring m-ring-elegance"><span>E</span></div> */
+.m-ring { width: 72px; height: 72px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+.m-ring-elegance    { background: var(--m-elegance-light); color: var(--m-elegance-text); }
+.m-ring-value       { background: var(--m-value-light); color: var(--m-value-text); }
+.m-ring-reliability { background: var(--m-reliability-light); color: var(--m-reliability-text); }
+.m-ring-awareness   { background: var(--m-awareness-light); color: var(--m-awareness-text); }
+
+/* Meaning badge: <span class="m-badge m-badge-elegance">E</span> */
+.m-badge { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; font-size: 0.75rem; font-weight: 600; }
+.m-badge-elegance    { background: var(--m-elegance-light); color: var(--m-elegance-text); }
+.m-badge-value       { background: var(--m-value-light); color: var(--m-value-text); }
+.m-badge-reliability { background: var(--m-reliability-light); color: var(--m-reliability-text); }
+.m-badge-awareness   { background: var(--m-awareness-light); color: var(--m-awareness-text); }
+
+/* ===== SEMANTIC CODING — STATUS / BLOCKED ===== */
+/*
+ * Blocked: amber/warm yellow — something can't proceed until a dependency is resolved.
+ * Use for: blocked actions, bet dependencies, any "waiting on X" indicator.
+ */
+:root {
+  --c-blocked-bg:     #FEF3C7;  /* warm light yellow */
+  --c-blocked-text:   #92400E;  /* dark amber text */
+  --c-blocked-border: #F59E0B;  /* amber accent */
+}
+.dark {
+  --c-blocked-bg:     rgba(245,158,11,0.15);
+  --c-blocked-text:   #FBBF24;
+  --c-blocked-border: #B45309;
+}
+
+/* ===== COMPONENTS ===== */
+
+/* Arrow link: <a class="link-arrow">Read more</a> */
+.link-arrow { text-decoration: none; }
+.link-arrow::after {
+  content: ' \2192';
+  display: inline-block;
+  transition: transform 0.15s ease;
+}
+.link-arrow:hover::after { transform: translateX(3px); }
+
+/* Bar chart: <div class="bar-track"><div class="bar-fill bg-teal-500" style="width:42%"></div></div> */
+.bar-track {
+  height: 28px;
+  background: var(--bar-track);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.bar-fill {
+  height: 100%;
+  border-radius: 4px;
+}
+
+/* Status dot: <span class="status-dot bg-teal-500"></span> */
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-right: 8px;
+  flex-shrink: 0;
+}
+
+/* Card edges: thin light-from-above effect */
+.card-edges { border-top: 1px solid var(--c-edge-top); border-bottom: 1px solid var(--c-edge-bot); }
+
+/* Theme transition (applied temporarily on toggle) */
+html.transitioning,
+html.transitioning *,
+html.transitioning *::before,
+html.transitioning *::after {
+  transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease !important;
+}

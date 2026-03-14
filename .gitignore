@@ -1,0 +1,12 @@
+.env
+context/
+devreports/
+*.db
+*.sqlite
+__pycache__/
+.DS_Store
+/tmp/
+.claude/rate-control/
+logs/
+.claude/api_token
+.claude/agent_id

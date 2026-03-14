@@ -1,0 +1,172 @@
+{
+  "types": {
+    "guide": {
+      "group": "knowledge",
+      "statuses": ["draft", "active", "archived", "imported", "concept", "done"],
+      "tier": 1,
+      "confidence": ""
+    },
+    "charter": {
+      "group": "knowledge",
+      "statuses": ["draft", "active", "archived", "imported"],
+      "tier": 2,
+      "confidence": ""
+    },
+    "reference": {
+      "group": "knowledge",
+      "statuses": ["imported", "verified", "stale", "active"],
+      "tier": 2,
+      "confidence": ""
+    },
+    "entities": {
+      "group": "knowledge",
+      "statuses": ["draft", "active", "imported"],
+      "tier": 2,
+      "confidence": ""
+    },
+    "policy": {
+      "group": "knowledge",
+      "statuses": ["draft", "active", "archived", "imported"],
+      "tier": 2,
+      "confidence": ""
+    },
+    "glossary": {
+      "group": "knowledge",
+      "statuses": ["draft", "active"],
+      "tier": 1,
+      "confidence": ""
+    },
+    "pattern": {
+      "group": "method",
+      "statuses": ["draft", "active", "mature"],
+      "tier": 1,
+      "confidence": "required"
+    },
+    "methodology": {
+      "group": "method",
+      "statuses": ["draft", "active", "mature"],
+      "tier": 1,
+      "confidence": "required"
+    },
+    "checklist": {
+      "group": "method",
+      "statuses": ["draft", "active"],
+      "tier": 1,
+      "confidence": ""
+    },
+    "workflow": {
+      "group": "method",
+      "statuses": ["draft", "active"],
+      "tier": 1,
+      "confidence": ""
+    },
+    "transcript": {
+      "group": "record",
+      "statuses": ["raw", "processed"],
+      "tier": 1,
+      "confidence": ""
+    },
+    "insight": {
+      "group": "record",
+      "statuses": ["draft", "verified"],
+      "tier": 2,
+      "confidence": "recommended"
+    },
+    "digest": {
+      "group": "record",
+      "statuses": ["draft", "final"],
+      "tier": 2,
+      "confidence": ""
+    },
+    "report": {
+      "group": "record",
+      "statuses": ["draft", "review", "final"],
+      "tier": 1,
+      "confidence": ""
+    },
+    "deal": {
+      "group": "case",
+      "statuses": ["intake", "analysis", "decided", "archived"],
+      "tier": 2,
+      "confidence": ""
+    },
+    "topic": {
+      "group": "case",
+      "statuses": ["open", "explore", "converge", "decided", "migrated", "OPEN", "EXPLORE", "CONVERGE", "DECIDED", "MIGRATED"],
+      "tier": 2,
+      "confidence": ""
+    },
+    "project": {
+      "group": "case",
+      "statuses": ["active", "completed", "archived"],
+      "tier": 2,
+      "confidence": ""
+    },
+    "bet": {
+      "group": "strategy",
+      "statuses": ["proposed", "experiment", "achieved", "failed", "abandoned"],
+      "tier": 1,
+      "confidence": ""
+    },
+    "action": {
+      "group": "strategy",
+      "statuses": ["todo", "doing", "blocked", "done", "wont"],
+      "tier": 0,
+      "confidence": ""
+    },
+    "maintenance": {
+      "group": "strategy",
+      "statuses": ["monitoring", "incident", "investigating"],
+      "tier": 1,
+      "confidence": ""
+    },
+    "domain": {
+      "group": "strategy",
+      "statuses": ["active", "paused", "archived"],
+      "tier": 1,
+      "confidence": ""
+    },
+    "script": {
+      "group": "tool",
+      "statuses": ["active"],
+      "tier": 0,
+      "confidence": ""
+    },
+    "template": {
+      "group": "tool",
+      "statuses": ["active"],
+      "tier": 0,
+      "confidence": ""
+    },
+    "method": {
+      "group": "compat",
+      "statuses": ["draft", "active", "mature"],
+      "tier": 1,
+      "confidence": ""
+    },
+    "process": {
+      "group": "compat",
+      "statuses": ["draft", "active", "imported"],
+      "tier": 1,
+      "confidence": ""
+    },
+    "best-practice": {
+      "group": "compat",
+      "statuses": ["draft", "active", "mature"],
+      "tier": 1,
+      "confidence": "required"
+    },
+    "operational": {
+      "group": "compat",
+      "statuses": ["draft", "active"],
+      "tier": 1,
+      "confidence": ""
+    }
+  },
+  "confidence_levels": ["anecdotal", "observed", "validated", "proven"],
+  "scan": {
+    "zones": ["knowledge", "work", "out", "tools", "in"],
+    "extensions": [".md"]
+  },
+  "zero_tier_zones": ["in/", "out/deliverables/", "tools/scripts/", "tools/traces/", "work/intake/chats/", "work/intake/harvests/"]
+}
