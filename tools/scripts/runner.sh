@@ -20,6 +20,7 @@ KEYCHAIN_PASSWORD="${PLOT_BOT_KEYCHAIN_PW:-}"
 RATE_LIMIT_PAUSE=3600                            # 1 hour if rate-limited
 
 HEARTBEAT_FILE="${REPO_DIR}/context/heartbeat.json"
+PAUSE_FILE="${REPO_DIR}/context/agent_paused"
 
 mkdir -p "$LOG_DIR" "${REPO_DIR}/context"
 
@@ -81,6 +82,16 @@ log "Repo: $REPO_DIR"
 log "Cooldown: ${COOLDOWN_SECONDS}s"
 
 while true; do
+  # Pause gate: if pause file exists, wait until it's removed
+  if [ -f "$PAUSE_FILE" ]; then
+    log "PAUSED by operator (${PAUSE_FILE} exists). Waiting..."
+    write_heartbeat "paused"
+    while [ -f "$PAUSE_FILE" ]; do
+      sleep 10
+    done
+    log "RESUMED — pause file removed."
+  fi
+
   # Ensure keychain is unlocked (needed for Claude OAuth on macOS)
   unlock_keychain
 

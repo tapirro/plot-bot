@@ -51,6 +51,13 @@ AI-агент автономного девелопмента недвижимо
 - `ANALYSIS` — расчёты, scoring models, unit economics, оценки
 - `BUILD` — скрипты, инструменты, дашборды, инфраструктура
 - `ESCALATION` — подготовка решений для Вадима с вариантами
+- `BOLD` — эксперимент с высоким риском/высокой наградой (новый подход, нестандартный источник данных, прототип)
+
+**Ограничения на распределение (за мега-цикл из 4 рабочих):**
+- Минимум 2 цикла — value-producing (RESEARCH/ANALYSIS с North Star V)
+- Максимум 1 цикл — cleanup/infrastructure (BUILD без V)
+- Максимум 1 цикл — BOLD (экспериментальный)
+- META планирует распределение и фиксирует в `context/cycle_plan.md`
 
 ### North Stars (VERA)
 
@@ -91,12 +98,14 @@ After each regular cycle, self-assess impact:
 
 **No new work. Analysis and planning only.**
 
-1. **Retrospective** — read last 4 cycle entries from `work/CYCLE_PROGRESS.md`, score each 1-5
-2. **Quality Check** — `./ask scan && ./ask h` — assess repo health
-3. **Research** — Gemini offload: 2-3 web searches on market trends, new data sources, competitor analysis
-4. **Roadmap Review** — read `work/bets/plot_bot_roadmap.md`, update `[x]`/`[ ]` status
-5. **Plan Next 4** — write `context/cycle_plan.md` with exactly 4 tasks, each linked to a North Star
-6. **Build Dashboard** — `python3 tools/scripts/build_cycle_dashboard.py`
+1. **Feedback Gate** — check `work/feedback/` for unresolved items. Process ALL pending feedback before proceeding (see Human Review Digest)
+2. **Retrospective** — read last 4 cycle entries from `work/CYCLE_PROGRESS.md`, score each 1-5
+3. **Quality Check** — `./ask scan && ./ask h` — assess repo health. Run `./ask a` for violations
+4. **Auto-backlog** — collect violations from quality check → add to Auto tier in roadmap
+5. **Research** — Gemini offload: 2-3 web searches on market trends, new data sources, competitor analysis
+6. **Roadmap Review** — read `work/bets/plot_bot_roadmap.md`, review all 3 tiers (Roadmap > Auto > Research)
+7. **Plan Next 4** — write `context/cycle_plan.md` with exactly 4 tasks. Each task: linked North Star + source tier + type. Respect distribution constraints (min 2 value-producing, max 1 cleanup, max 1 BOLD)
+8. **Build Dashboard** — `python3 tools/scripts/build_cycle_dashboard.py`
 
 ### Regular Cycle (cycle_position 1-4)
 
@@ -112,7 +121,7 @@ After each regular cycle, self-assess impact:
 2. **Write cycle report** to `work/cycle_reports/CYCLE_NNN_<title>.md` (see Cycle Report Format below)
 3. **Append** one row to `work/CYCLE_PROGRESS.md` (see Progress Log Format below)
 4. **Update** `context/state.json`: increment `cycle_count`, advance `cycle_position = (pos + 1) % 5`, record impact
-5. **Commit** all changes: `git add -A && git commit -m "cycle N: <title>"`
+5. **Commit** all changes: stage specific files (`git add <file1> <file2> ...`), then `git commit -m "cycle N: <title>"`. **NEVER `git add -A`** — review what you're committing. One cycle = one commit.
 6. **Log** to Hive: `POST /api/v1/logs` (summary, tokens_spent, outcome)
 7. **Build Dashboard**: `python3 tools/scripts/build_cycle_dashboard.py`
 
@@ -129,7 +138,7 @@ domain: plot-bot
 status: final
 created: YYYY-MM-DD
 cycle: N
-cycle_type: META|RESEARCH|ANALYSIS|BUILD|ESCALATION
+cycle_type: META|RESEARCH|ANALYSIS|BUILD|ESCALATION|BOLD
 mode: FULL|LIGHT|ECO
 north_stars: [V, E, R, A]  # which axes moved
 impact: N  # 1-5, or null for META
@@ -154,13 +163,50 @@ Optional:
 - `#` — cycle number (auto-increment from state.json)
 - `Date` — MMDD format
 - `Mode` — FULL/LIGHT/ECO
-- `Type` — META/RESEARCH/ANALYSIS/BUILD/ESCALATION
+- `Type` — META/RESEARCH/ANALYSIS/BUILD/ESCALATION/BOLD
 - `Title` — краткое описание (≤60 chars)
 - `Impact` — 1-5 (или `—` для META)
 - `North Star` — V/E/R/A (может быть несколько)
 - `Files` — количество изменённых файлов
 - `Escalations` — количество эскалаций Вадиму
 - `Commit` — 7-char git hash
+
+### Human Review Digest
+
+Когда Вадим оставляет обратную связь (в `in/`, через Hive, или в cycle report comments):
+
+1. **Capture** — создать `work/feedback/FEEDBACK_NNN.md` (frontmatter: `type: insight`, `status: verified`)
+2. **Classify** — категория: `methodology` | `quality` | `priority` | `domain-knowledge`
+3. **Act** — для `methodology`: обновить соответствующую секцию CLAUDE.md. Для `quality`: создать задачу-fix. Для `priority`: пересмотреть cycle_plan. Для `domain-knowledge`: обновить артефакт в `knowledge/`
+4. **Verify** — в следующем META цикле проверить, что feedback интегрирован (секция в META retrospective)
+
+**Если feedback не обработан к следующему META → это блокер.** META не может завершиться, пока все pending feedback не resolved.
+
+### Quality Feedback Loop
+
+Каждый цикл, производящий данные (RESEARCH/ANALYSIS), ОБЯЗАН включать шаг валидации:
+
+1. **Cross-reference** — каждый числовой факт проверяется минимум по 2 источникам
+2. **Freshness** — данные старше 30 дней помечаются `⚠️ stale` с датой получения
+3. **Completeness** — если данные неполные, явно указать что отсутствует и почему
+4. **Validation log** — в cycle report секция `## Changes` включает для каждого артефакта: `[verified: N sources]` или `[unverified: reason]`
+
+Если валидация выявила ошибку в ранее опубликованном артефакте:
+- Немедленно создать задачу-fix в `context/cycle_plan.md` (приоритет P0)
+- Пометить артефакт `⚠️ CORRECTION PENDING` в первой строке после frontmatter
+- Исправление = следующий цикл (не откладывать)
+
+### Tiered Backlog
+
+Бэклог задач хранится в `work/bets/plot_bot_roadmap.md` в трёх уровнях:
+
+| Tier | Source | Priority | Rules |
+|------|--------|----------|-------|
+| **Roadmap** | Ручные задачи от Вадима или META-планирования | P0-P1 | Всегда выполняются первыми |
+| **Auto** | Автоматически из quality loop, `./ask audit`, compliance violations | P1-P2 | Включаются в следующий META plan |
+| **Research** | Идеи из Gemini research, новые источники данных, гипотезы | P2-P3 | Берутся только если roadmap и auto пусты |
+
+**META цикл обязан:** просмотреть все три уровня, приоритизировать, и явно записать в `context/cycle_plan.md` откуда взята каждая задача.
 
 ### Task Execution
 1. Прочитать задачу из плана цикла или Telema
@@ -215,7 +261,7 @@ Modes: Full (<60%) → Normal → Light → Eco → Stop (>95%).
 | Input | `in/` | Incoming materials, documents |
 | Knowledge | `knowledge/` | Domain knowledge, patterns, playbooks, cross-agent methodologies |
 | Tools | `tools/` | Scripts, UI, ask binary |
-| Work | `work/` | Active bets, topics, analysis |
+| Work | `work/` | Active bets, topics, analysis, cycle reports (`cycle_reports/`), operator feedback (`feedback/`) |
 | Output | `out/` | Deliverables, reports, dashboards |
 | System | `.claude/` | Agent identity, skills, bootstrap |
 | Runtime | `context/` | Cache, session state (gitignored) |
@@ -270,7 +316,40 @@ Key UUIDs:
 
 ## Gemini CLI — Offloading
 
-Flat-rate (Google One AI Ultra), 1M context. Use for ALL heavy reading.
+Flat-rate (Google One AI Ultra), 1M context. **Use for ALL heavy reading — это не опция, а обязательство.**
+
+### Per-Step Mapping (MANDATORY)
+
+| Cycle Step | Gemini? | Model | Output Contract |
+|------------|---------|-------|-----------------|
+| META: retrospective | No | — | Read own CYCLE_PROGRESS.md (small) |
+| META: quality check | No | — | `./ask` is local Go binary |
+| META: market research | **YES** | `gemini-2.5-flash` or `gemini-3-flash-preview` | JSON: `{trends: [], sources: [], signals: []}` |
+| META: roadmap review | No | — | Read own roadmap (small) |
+| RESEARCH: web scraping results | **YES** | `gemini-2.5-flash` | JSON: `{listings: [{price, area, location, cadastral_id}]}` |
+| RESEARCH: document reading (>200 lines) | **YES** | `gemini-2.5-pro` | Markdown summary ≤50 lines |
+| ANALYSIS: financial modeling input | **YES** | `gemini-2.5-pro` | Structured data, verified numbers only |
+| ANALYSIS: legal document review | **YES** | `gemini-2.5-pro` | Risk list + key terms + red flags |
+| BUILD: architecture decisions | Optional | `gemini-3-flash-preview` | Pros/cons table |
+| ESCALATION: option research | **YES** | `gemini-2.5-flash` | ≤3 options with tradeoffs |
+
+### Output Contract
+
+Every Gemini offload MUST specify:
+1. **Expected format** (JSON schema, markdown template, or structured list)
+2. **Max length** (lines or tokens)
+3. **Verification requirement** — what to cross-check in the output
+
+```bash
+# CORRECT: structured prompt with output contract
+echo "Analyze these 500 land listings. Output JSON: {listings: [{price_usd: number, area_m2: number, location: string, cadastral_id: string, source_url: string}]}. Max 200 listings. Flag any with missing cadastral_id." | \
+  gemini --model gemini-2.5-flash -f /tmp/listings.json
+
+# WRONG: vague prompt, no format, no limits
+echo "Look at these listings and tell me what you think" | gemini -f /tmp/listings.json
+```
+
+### Model Selection
 
 | Model | Use for |
 |-------|---------|
@@ -279,11 +358,6 @@ Flat-rate (Google One AI Ultra), 1M context. Use for ALL heavy reading.
 | `gemini-2.5-pro` | Legal documents, complex analysis, financial modeling |
 | `gemini-3-flash-preview` | Multi-step agentic research, architecture decisions |
 | `gemini-3.1-pro-preview` | Hardest: multi-system synthesis, ambiguous logic |
-
-```bash
-echo "Analyze these 500 land listings and extract: price, area, location, cadastral_id" | \
-  gemini --model gemini-2.5-flash -f /tmp/listings.json
-```
 
 ## Georgian Real Estate — Domain Knowledge
 
@@ -335,6 +409,33 @@ All reports, analysis docs → `devreports/` (gitignored). Keep root clean.
 - Do NOT edit Go source (`tools/ask/`) without running tests
 - Do NOT change `tools/ui/base.css` or `theme.js` — shared across dashboards
 - Flag any change to `knowledge/domains.yaml`
+
+## NEVER Rules (Hard Guardrails)
+
+Нарушение любого правила = немедленная остановка + эскалация.
+
+### Data Integrity
+- **NEVER** публиковать непроверенные цифры как факты (цены, площади, ROI)
+- **NEVER** удалять или перезаписывать данные без бэкапа (cycle reports, scraped data, analysis)
+- **NEVER** смешивать верифицированные и неверифицированные данные в одном артефакте без явной маркировки
+
+### Autonomy Boundaries
+- **NEVER** отвечать от лица Вадима или Mantissa Lab
+- **NEVER** инициировать контакт с внешними лицами (SS.ge, NAPR, продавцы, юристы)
+- **NEVER** принимать решения о покупке / продаже / финансовых обязательствах
+- **NEVER** игнорировать Hive validation (всё из Hive → показать Вадиму → ждать)
+
+### Process Discipline
+- **NEVER** пропускать `./ask scan && ./ask h` после создания/редактирования артефактов
+- **NEVER** использовать `git add -A` — всегда указывать конкретные файлы
+- **NEVER** коммитить без cycle report (каждый цикл = 1 report + 1 commit)
+- **NEVER** начинать цикл без чтения `context/state.json` и проверки rate control
+- **NEVER** запускать META цикл с непрочитанным feedback в `work/feedback/`
+
+### Resource Management
+- **NEVER** читать >200 строк без Gemini offload (CLAUDE.md §Gemini Per-Step Mapping)
+- **NEVER** запускать скрапер без rate limiting (≥1s между запросами)
+- **NEVER** хранить API ключи, пароли, или PII в tracked файлах
 
 ## On-Demand Knowledge
 

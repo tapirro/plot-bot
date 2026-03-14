@@ -18,6 +18,7 @@ REPO = Path(__file__).resolve().parent.parent.parent
 PROGRESS_FILE = REPO / "work" / "CYCLE_PROGRESS.md"
 STATE_FILE = REPO / "context" / "state.json"
 HEARTBEAT_FILE = REPO / "context" / "heartbeat.json"
+PAUSE_FILE = REPO / "context" / "agent_paused"
 ROADMAP_FILE = REPO / "work" / "bets" / "plot_bot_roadmap.md"
 OUTPUT_FILE = REPO / "devreports" / "cycle_dashboard.html"
 
@@ -216,6 +217,15 @@ def _live_banner_html(hb: dict) -> str:
             f'<span class="live-time">{elapsed} ago</span>'
             f'</div>'
         )
+    elif status == "paused":
+        return (
+            f'<div class="live-banner live-paused">'
+            f'<span class="live-dot live-dot-paused"></span>'
+            f'<span class="live-label">Paused by operator</span>'
+            f'<span class="live-detail">After cycle #{cycle} | waiting for resume</span>'
+            f'<span class="live-time">{elapsed}</span>'
+            f'</div>'
+        )
     elif status in ("failed", "timeout"):
         exit_code = hb.get("exit_code", "?")
         return (
@@ -237,7 +247,24 @@ def _live_banner_html(hb: dict) -> str:
         )
 
 
-def build_html(cycles: list[dict], state: dict, roadmap: dict, heartbeat: dict) -> str:
+def _agent_control_html(is_paused: bool) -> str:
+    """Generate pause/start button HTML."""
+    if is_paused:
+        return (
+            '<button class="agent-ctrl agent-ctrl-start" id="agent-ctrl" onclick="agentControl(\'resume\')">'
+            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>'
+            'Start Agent'
+            '</button>'
+        )
+    return (
+        '<button class="agent-ctrl agent-ctrl-pause" id="agent-ctrl" onclick="agentControl(\'pause\')">'
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>'
+        'Pause Agent'
+        '</button>'
+    )
+
+
+def build_html(cycles: list[dict], state: dict, roadmap: dict, heartbeat: dict, is_paused: bool = False) -> str:
     """Generate the full dashboard HTML."""
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
 
@@ -410,15 +437,30 @@ h1 {{ font-family:'Newsreader',Georgia,serif; font-size:28px; font-weight:600; l
 .live-dot-cooldown {{ background:#C4A24D; }}
 .live-dot-idle {{ background:var(--c-muted); }}
 .live-dot-failed {{ background:#C75D4A; }}
+.live-paused {{ background:rgba(196,162,77,0.12); border:1px solid rgba(196,162,77,0.25); }}
+.live-dot-paused {{ background:#C4A24D; animation:pulse 3s infinite; }}
 @keyframes pulse {{ 0%,100% {{ opacity:1; }} 50% {{ opacity:0.4; }} }}
 .live-label {{ font-weight:500; }}
 .live-detail {{ color:var(--c-muted); }}
 .live-time {{ font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--c-muted); margin-left:auto; }}
+
+/* Agent control button */
+.agent-ctrl {{ display:inline-flex; align-items:center; gap:6px; padding:6px 16px; border-radius:var(--radius); border:1px solid var(--c-subtle); background:var(--c-card); color:var(--c-ink); font-size:12px; font-weight:500; cursor:pointer; transition:all 150ms; margin-left:12px; }}
+.agent-ctrl:hover {{ background:var(--c-highlight); border-color:var(--c-muted); }}
+.agent-ctrl-pause {{ border-color:rgba(199,93,74,0.4); }}
+.agent-ctrl-pause:hover {{ background:rgba(199,93,74,0.08); }}
+.agent-ctrl-start {{ border-color:rgba(61,158,143,0.4); }}
+.agent-ctrl-start:hover {{ background:rgba(61,158,143,0.08); }}
+.agent-ctrl:disabled {{ opacity:0.5; cursor:not-allowed; }}
+.agent-ctrl svg {{ width:14px; height:14px; }}
 </style>
 </head>
 <body>
 
+<div style="display:flex;align-items:baseline;gap:12px;">
 <h1>Plot Bot</h1>
+{_agent_control_html(is_paused)}
+</div>
 <p class="subtitle">Cycle Dashboard — generated {now}</p>
 
 <!-- Live Status -->
@@ -557,6 +599,25 @@ h1 {{ font-family:'Newsreader',Georgia,serif; font-size:28px; font-weight:600; l
   }}
   setInterval(pollStatus, 15000);
 }})();
+
+// Agent control: pause / resume
+async function agentControl(action) {{
+  const btn = document.getElementById('agent-ctrl');
+  if (btn) btn.disabled = true;
+  try {{
+    const r = await fetch('/api/agent/' + action, {{ method: 'POST' }});
+    if (r.ok) {{
+      location.reload();
+    }} else {{
+      const d = await r.json().catch(() => ({{}}));
+      alert('Error: ' + (d.error || r.statusText));
+      if (btn) btn.disabled = false;
+    }}
+  }} catch(e) {{
+    alert('Dashboard not in serve mode — control unavailable');
+    if (btn) btn.disabled = false;
+  }}
+}}
 </script>
 
 </body>
@@ -571,8 +632,9 @@ def build_once() -> None:
     state = parse_state()
     heartbeat = parse_heartbeat()
     roadmap = parse_roadmap()
+    paused = PAUSE_FILE.exists()
 
-    html = build_html(cycles, state, roadmap, heartbeat)
+    html = build_html(cycles, state, roadmap, heartbeat, is_paused=paused)
     OUTPUT_FILE.write_text(html)
     print(f"Dashboard built: {OUTPUT_FILE}")
     print(f"  Cycles: {len(cycles)}, Roadmap: {roadmap['done']}/{roadmap['total']}")
@@ -587,19 +649,22 @@ def serve(port: int = 3000) -> None:
     import http.server
 
     class Handler(http.server.BaseHTTPRequestHandler):
+        def _json_response(self, code: int, data: dict) -> None:
+            body = json.dumps(data).encode()
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(body)
+
         def do_GET(self) -> None:
             path = self.path.split("?")[0].rstrip("/") or "/"
 
             if path == "/api/status":
                 hb = parse_heartbeat()
                 st = parse_state()
-                data = {**hb, "state": st}
-                body = json.dumps(data).encode()
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Access-Control-Allow-Origin", "*")
-                self.end_headers()
-                self.wfile.write(body)
+                data = {**hb, "state": st, "paused": PAUSE_FILE.exists()}
+                self._json_response(200, data)
                 return
 
             if path == "/" or path == "/dashboard":
@@ -608,7 +673,8 @@ def serve(port: int = 3000) -> None:
                 state = parse_state()
                 heartbeat = parse_heartbeat()
                 roadmap = parse_roadmap()
-                html = build_html(cycles, state, roadmap, heartbeat)
+                paused = PAUSE_FILE.exists()
+                html = build_html(cycles, state, roadmap, heartbeat, is_paused=paused)
                 body = html.encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -618,6 +684,24 @@ def serve(port: int = 3000) -> None:
 
             self.send_response(404)
             self.end_headers()
+
+        def do_POST(self) -> None:
+            path = self.path.split("?")[0].rstrip("/")
+
+            if path == "/api/agent/pause":
+                PAUSE_FILE.write_text(
+                    f'{{"paused_at": "{datetime.now().isoformat()}", "by": "dashboard"}}\n'
+                )
+                self._json_response(200, {"ok": True, "paused": True})
+                return
+
+            if path == "/api/agent/resume":
+                if PAUSE_FILE.exists():
+                    PAUSE_FILE.unlink()
+                self._json_response(200, {"ok": True, "paused": False})
+                return
+
+            self._json_response(404, {"error": "not found"})
 
         def log_message(self, fmt: str, *args: object) -> None:
             pass  # Quiet
