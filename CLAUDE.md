@@ -186,9 +186,10 @@ echo "Analyze these 500 land listings and extract: price, area, location, cadast
 ### Data Sources (to build scrapers for)
 - **NAPR API** — кадастровый реестр (уже есть инструмент)
 - **ArcGIS** — GIS данные по участкам (уже есть интеграция)
-- **Mymarket.ge** — объявления о продаже земли
-- **SS.ge** — объявления о продаже земли
-- **Place.ge** — объявления о недвижимости
+- **SS.ge** — крупнейший маркетплейс (есть официальный API, contact: services.ss.ge)
+- **Myhome.ge** — маркетплейс недвижимости (группа MY.GE, НЕ mymarket.ge)
+- **Place.ge** — портал недвижимости (~2K+ объявлений)
+- **Copernicus Sentinel-2** — бесплатные спутниковые снимки 10м (dataspace.copernicus.eu)
 - **Публичный реестр** — данные о сделках (исследовать доступность)
 
 ## Design System

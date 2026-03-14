@@ -1,13 +1,13 @@
 {
   "artifacts": [
     {
-      "id": "vision-plot-bot-vision-0314",
+      "id": "vision-processed-plot-bot-vision-0314",
       "type": "vision",
       "status": "imported",
       "domain": "plot-bot",
       "tags": null,
       "title": "Plot Bot — AI Real Estate Developer (Georgian Coastline)",
-      "path": "in/2026-03-14_plot-bot-vision.md",
+      "path": "in/processed/2026-03-14_plot-bot-vision.md",
       "updated": "2026-03-14",
       "created": "2026-03-14",
       "sections": [
@@ -1114,6 +1114,20 @@
       "basis": "applied to 2 real deals with full 6-axis analysis"
     },
     {
+      "id": "script-scripts-arcgis-spatial",
+      "type": "script",
+      "status": "active",
+      "domain": "assistant/tooling",
+      "tags": null,
+      "title": "Predefined bounding boxes: (xmin/lon_min, ymin/lat_min, xmax/lon_max, ymax/lat_max)",
+      "path": "tools/scripts/arcgis_spatial.py",
+      "updated": "2026-03-14",
+      "created": "2026-03-14",
+      "sections": null,
+      "edges_out": null,
+      "tier": 0
+    },
+    {
       "id": "script-scripts-extract-bets",
       "type": "script",
       "status": "active",
@@ -1128,6 +1142,20 @@
       "tier": 0
     },
     {
+      "id": "script-scripts-install-daemon",
+      "type": "script",
+      "status": "active",
+      "domain": "assistant/tooling",
+      "tags": null,
+      "title": "Install Plot Bot as a launchd daemon on macOS.",
+      "path": "tools/scripts/install-daemon.sh",
+      "updated": "2026-03-14",
+      "created": "2026-03-14",
+      "sections": null,
+      "edges_out": null,
+      "tier": 0
+    },
+    {
       "id": "script-scripts-napr-lookup",
       "type": "script",
       "status": "active",
@@ -1135,6 +1163,34 @@
       "tags": null,
       "title": "napr_lookup",
       "path": "tools/scripts/napr_lookup.py",
+      "updated": "2026-03-14",
+      "created": "2026-03-14",
+      "sections": null,
+      "edges_out": null,
+      "tier": 0
+    },
+    {
+      "id": "script-scripts-place-ge-scraper",
+      "type": "script",
+      "status": "active",
+      "domain": "assistant/tooling",
+      "tags": null,
+      "title": "Known city IDs (from window.cities on Place.ge)",
+      "path": "tools/scripts/place_ge_scraper.py",
+      "updated": "2026-03-14",
+      "created": "2026-03-14",
+      "sections": null,
+      "edges_out": null,
+      "tier": 0
+    },
+    {
+      "id": "script-scripts-runner",
+      "type": "script",
+      "status": "active",
+      "domain": "assistant/tooling",
+      "tags": null,
+      "title": "Plot Bot — Autonomous Agent Runner",
+      "path": "tools/scripts/runner.sh",
       "updated": "2026-03-14",
       "created": "2026-03-14",
       "sections": null,
@@ -1216,11 +1272,59 @@
       ],
       "edges_out": null,
       "tier": 3
+    },
+    {
+      "id": "task-1.1-data-sources",
+      "type": "research",
+      "status": "complete",
+      "domain": "plot-bot/land",
+      "tags": null,
+      "title": "Georgian Real Estate Data Sources — Inventory",
+      "path": "work/data_sources_inventory.md",
+      "updated": "2026-03-14",
+      "created": "2026-03-14",
+      "sections": [
+        "executive-summary",
+        "source-matrix",
+        "detailed-assessment",
+        "additional-sources-discovered",
+        "recommended-priority",
+        "decision-required-escalation"
+      ],
+      "edges_out": null,
+      "tier": 3
+    },
+    {
+      "id": "task-0.1-unit-economics",
+      "type": "analysis",
+      "status": "draft",
+      "domain": "plot-bot/finance",
+      "tags": null,
+      "title": "Unit Economics — Model Plot (20,000 m²)",
+      "path": "work/unit_economics.md",
+      "updated": "2026-03-14",
+      "created": "2026-03-14",
+      "sections": [
+        "параметры-модели",
+        "phase-1-acquisition",
+        "phase-2-financing",
+        "phase-3-development-облагораживание",
+        "phase-4-sales",
+        "p-l-summary",
+        "break-even-analysis",
+        "cash-flow-timeline-24-months",
+        "sensitivity-analysis",
+        "key-risks",
+        "decisions-required-escalation",
+        "comparison-with-vision-target"
+      ],
+      "edges_out": null,
+      "tier": 3
     }
   ],
   "_meta": {
     "updated": "2026-03-14",
-    "total": 41,
+    "total": 47,
     "generator": "ask scan"
   }
 }
