@@ -21,7 +21,7 @@ meanings: [value, elegance, reliability, awareness]
 
 | Metric | Current | Target | Method |
 |--------|---------|--------|--------|
-| Roadmap tasks completed | 15/83 | 83/83 | Cycle execution |
+| Roadmap tasks completed | 18/83 | 83/83 | Cycle execution |
 | Auto-backlog items resolved | 0/2 | 0 open | Quality loop |
 | Phases with MVP | 0/6 | 1/6 (Intelligence) | Phase 1 completion |
 | Auto-backlog items open | 2 | 0 | Quality loop |
@@ -87,9 +87,9 @@ meanings: [value, elegance, reliability, awareness]
 - [ ] Инструмент загрузки спутниковых снимков по координатам
 
 ### 1.3 Хранение данных
-- [ ] Спроектировать схему данных (участки, факторы, оценки, история цен)
-- [ ] Выбрать storage (SQLite → PostgreSQL? + PostGIS для геоданных?)
-- [ ] Реализовать ETL: источники → единая база
+- [x] Спроектировать схему данных (участки, факторы, оценки, история цен) → `tools/scripts/land_db.py` (4 tables: listings, parcels, scores, listing_parcel)
+- [x] Выбрать storage → SQLite (`tools/scripts/land_db.py`). PostGIS deferred — SQLite sufficient for MVP
+- [x] Реализовать ETL: источники → единая база → `tools/scripts/land_db.py` load-listings + load-parcels (30 listings + 3,939 parcels loaded)
 - [ ] Версионирование оценок (история изменений цен)
 
 ### 1.4 Методология анализа
