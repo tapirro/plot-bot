@@ -126,6 +126,12 @@
       "tier": 1,
       "confidence": ""
     },
+    "cycle-report": {
+      "group": "record",
+      "statuses": ["draft", "final"],
+      "tier": 1,
+      "confidence": ""
+    },
     "script": {
       "group": "tool",
       "statuses": ["active"],

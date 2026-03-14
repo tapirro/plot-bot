@@ -109,11 +109,41 @@ After each regular cycle, self-assess impact:
 ### Session End (MANDATORY SEQUENCE)
 
 1. **Self-score** impact (1-5) for this cycle. META cycles get impact `—`
-2. **Append** one row to `work/CYCLE_PROGRESS.md` (see format below)
-3. **Update** `context/state.json`: increment `cycle_count`, advance `cycle_position = (pos + 1) % 5`, record impact
-4. **Commit** all changes: `git add -A && git commit -m "cycle N: <title>"`
-5. **Log** to Hive: `POST /api/v1/logs` (summary, tokens_spent, outcome)
-6. **Build Dashboard**: `python3 tools/scripts/build_cycle_dashboard.py`
+2. **Write cycle report** to `work/cycle_reports/CYCLE_NNN_<title>.md` (see Cycle Report Format below)
+3. **Append** one row to `work/CYCLE_PROGRESS.md` (see Progress Log Format below)
+4. **Update** `context/state.json`: increment `cycle_count`, advance `cycle_position = (pos + 1) % 5`, record impact
+5. **Commit** all changes: `git add -A && git commit -m "cycle N: <title>"`
+6. **Log** to Hive: `POST /api/v1/logs` (summary, tokens_spent, outcome)
+7. **Build Dashboard**: `python3 tools/scripts/build_cycle_dashboard.py`
+
+### Cycle Report Format (`work/cycle_reports/CYCLE_NNN_<title>.md`)
+
+Every cycle MUST produce a report. Schema: `type: cycle-report` in `tools/ask/schema.json`.
+
+```yaml
+---
+id: cycle-report-NNN
+type: cycle-report
+title: "Cycle N: <title>"
+domain: plot-bot
+status: final
+created: YYYY-MM-DD
+cycle: N
+cycle_type: META|RESEARCH|ANALYSIS|BUILD|ESCALATION
+mode: FULL|LIGHT|ECO
+north_stars: [V, E, R, A]  # which axes moved
+impact: N  # 1-5, or null for META
+---
+```
+
+Required sections (enforced by `./ask lint`):
+- `## Hypothesis` — what this cycle aimed to achieve (2-15 lines)
+- `## Changes` — what was created/modified (3-40 lines, list format)
+- `## Impact` — self-assessment with score justification (2-20 lines)
+- `## Next` — what should happen next (1-15 lines, list format)
+
+Optional:
+- `## Escalations` — items requiring Vadim's decision (list format)
 
 ### Progress Log Format (`work/CYCLE_PROGRESS.md`)
 

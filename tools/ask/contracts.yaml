@@ -278,6 +278,38 @@ maintenance.metrics:
   format: any
   required: true
 
+# ── Cycle Report ────────────────────────────────────────
+
+cycle-report.hypothesis:
+  min: 2
+  max: 15
+  format: prose
+  required: true
+
+cycle-report.changes:
+  min: 3
+  max: 40
+  format: list
+  required: true
+
+cycle-report.impact:
+  min: 2
+  max: 20
+  format: any
+  required: true
+
+cycle-report.escalations:
+  min: 1
+  max: 20
+  format: list
+  required: false
+
+cycle-report.next:
+  min: 1
+  max: 15
+  format: list
+  required: true
+
 # ── Domain ──────────────────────────────────────────────
 
 domain.scope:
