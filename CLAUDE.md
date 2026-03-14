@@ -36,24 +36,108 @@ AI-агент автономного девелопмента недвижимо
 
 ## Autonomous Loop Protocol
 
-### Session Start
-1. Check rate control: `node ~/.claude/rate-control/claude_limits.mjs --json`
-   - >60% weekly → Light mode (только P0 задачи, Gemini для research)
-   - >80% → Eco mode (только эскалации и логирование)
-   - >95% → Stop (записать прогресс, выйти)
-2. Run `bash .claude/bootstrap.sh` — Hive + Telema sync
-3. Check inbox: `in/` folder for new materials
-4. Pick next task: highest priority pending from Telema
-5. Work → Complete → Pick next → Repeat
+### Cycle Structure
 
-### Task Execution
-1. Прочитать задачу из Telema
+5 циклов = 1 мега-цикл: `[META, R, R, R, R]`
+
+| Position | Type | Purpose |
+|----------|------|---------|
+| 0 (каждый 5-й) | **META** | Ретроспектива + планирование. **Ноль новой работы.** |
+| 1-4 | **RESEARCH / ANALYSIS / BUILD / ESCALATION** | Выполнение задач из плана META |
+
+**Типы циклов:**
+- `META` — ретроспектива (оценка 4 предыдущих), планирование следующих 4, Gemini research
+- `RESEARCH` — сбор данных, скрапинг, исследование источников
+- `ANALYSIS` — расчёты, scoring models, unit economics, оценки
+- `BUILD` — скрипты, инструменты, дашборды, инфраструктура
+- `ESCALATION` — подготовка решений для Вадима с вариантами
+
+### North Stars (VERA)
+
+| Axis | Name | What it measures | Target |
+|------|------|-----------------|--------|
+| **V** | Value | Revenue-impacting: deals, economics, investor-ready materials | Progress toward first deal |
+| **E** | Elegance | Tools, automation, DRY, infrastructure quality | ≥1 reusable tool per mega-cycle |
+| **R** | Reliability | Data quality, verification, cross-referencing sources | 0 unverified numbers published |
+| **A** | Awareness | Market coverage, new sources, monitoring breadth | % target area cadastral coverage |
+
+### Impact Self-Score (1-5)
+
+After each regular cycle, self-assess impact:
+
+| Score | Definition | Example |
+|-------|-----------|---------|
+| **1** | Cosmetic — renamed, reformatted | File cleanup |
+| **2** | Minor — small improvement, no new insight | Fixed a script bug |
+| **3** | Infrastructure — new tool, new data source connected | Place.ge scraper working |
+| **4** | Significant — new analysis, actionable insight | Unit economics model with break-even |
+| **5** | Breakthrough — deal-ready output, investor-facing | Complete cluster evaluation with scoring |
+
+**Hard rule:** if avg impact of previous 4 cycles < 3.0 → next mega-cycle is stabilization only (no new tasks, fix existing).
+
+### Session Start (MANDATORY SEQUENCE)
+
+1. Read `context/state.json` → get `cycle_count`, `cycle_position`
+2. Check rate control: `node ~/.claude/rate-control/claude_limits.mjs --json`
+   - `>60%` weekly → Light mode (только P0 задачи, Gemini для research)
+   - `>80%` → Eco mode (только эскалации и логирование)
+   - `>95%` → Stop (записать прогресс, выйти)
+3. Run `bash .claude/bootstrap.sh` — Hive + Telema sync
+4. Check inbox: `in/` folder for new materials
+5. If `cycle_position == 0` → **META cycle** (see below)
+6. Else → pick highest priority task from `context/cycle_plan.md`
+
+### META Cycle (cycle_position == 0)
+
+**No new work. Analysis and planning only.**
+
+1. **Retrospective** — read last 4 cycle entries from `work/CYCLE_PROGRESS.md`, score each 1-5
+2. **Quality Check** — `./ask scan && ./ask h` — assess repo health
+3. **Research** — Gemini offload: 2-3 web searches on market trends, new data sources, competitor analysis
+4. **Roadmap Review** — read `work/bets/plot_bot_roadmap.md`, update `[x]`/`[ ]` status
+5. **Plan Next 4** — write `context/cycle_plan.md` with exactly 4 tasks, each linked to a North Star
+6. **Build Dashboard** — `python3 tools/scripts/build_cycle_dashboard.py`
+
+### Regular Cycle (cycle_position 1-4)
+
+1. Read task from `context/cycle_plan.md` (item #cycle_position)
 2. Если задача требует research >200 строк → **Gemini offload** (ОБЯЗАТЕЛЬНО)
 3. Если задача требует решения Вадима → **эскалация** (ОБЯЗАТЕЛЬНО)
 4. Выполнить задачу, сохранить результат в `work/` или `out/`
 5. `./ask scan && ./ask h` — проверка compliance
-6. Закрыть задачу в Telema: `tl tasks complete <task_id>`
-7. Лог в Hive: `POST /api/v1/logs` (summary, tokens_spent, outcome)
+
+### Session End (MANDATORY SEQUENCE)
+
+1. **Self-score** impact (1-5) for this cycle. META cycles get impact `—`
+2. **Append** one row to `work/CYCLE_PROGRESS.md` (see format below)
+3. **Update** `context/state.json`: increment `cycle_count`, advance `cycle_position = (pos + 1) % 5`, record impact
+4. **Commit** all changes: `git add -A && git commit -m "cycle N: <title>"`
+5. **Log** to Hive: `POST /api/v1/logs` (summary, tokens_spent, outcome)
+6. **Build Dashboard**: `python3 tools/scripts/build_cycle_dashboard.py`
+
+### Progress Log Format (`work/CYCLE_PROGRESS.md`)
+
+```
+| # | Date | Mode | Type | Title | Impact | North Star | Files | Escalations | Commit |
+```
+
+- `#` — cycle number (auto-increment from state.json)
+- `Date` — MMDD format
+- `Mode` — FULL/LIGHT/ECO
+- `Type` — META/RESEARCH/ANALYSIS/BUILD/ESCALATION
+- `Title` — краткое описание (≤60 chars)
+- `Impact` — 1-5 (или `—` для META)
+- `North Star` — V/E/R/A (может быть несколько)
+- `Files` — количество изменённых файлов
+- `Escalations` — количество эскалаций Вадиму
+- `Commit` — 7-char git hash
+
+### Task Execution
+1. Прочитать задачу из плана цикла или Telema
+2. Если задача требует research >200 строк → **Gemini offload** (ОБЯЗАТЕЛЬНО)
+3. Если задача требует решения Вадима → **эскалация** (ОБЯЗАТЕЛЬНО)
+4. Выполнить задачу, сохранить результат в `work/` или `out/`
+5. `./ask scan && ./ask h` — проверка compliance
 
 ### Decision Gates (ЭСКАЛАЦИЯ ОБЯЗАТЕЛЬНА)
 - Любое решение о покупке земли

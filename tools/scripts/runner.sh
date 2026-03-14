@@ -13,12 +13,13 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
 REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 LOG_DIR="${REPO_DIR}/logs"
+STATE_FILE="${REPO_DIR}/context/state.json"
 COOLDOWN_SECONDS="${PLOT_BOT_COOLDOWN:-300}"     # 5 min between cycles
 MAX_CONSECUTIVE_FAILURES=5
 KEYCHAIN_PASSWORD="${PLOT_BOT_KEYCHAIN_PW:-}"
 RATE_LIMIT_PAUSE=3600                            # 1 hour if rate-limited
 
-mkdir -p "$LOG_DIR"
+mkdir -p "$LOG_DIR" "${REPO_DIR}/context"
 
 log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_DIR/runner.log"
@@ -29,6 +30,20 @@ check_rate_control() {
   pct=$(node ~/.claude/rate-control/claude_limits.mjs --json 2>/dev/null \
     | python3 -c "import sys,json; print(json.load(sys.stdin).get('windows',{}).get('7d',{}).get('pct',0))" 2>/dev/null || echo "0")
   echo "$pct"
+}
+
+read_state() {
+  if [ -f "$STATE_FILE" ]; then
+    CYCLE_COUNT=$(python3 -c "import json; d=json.load(open('$STATE_FILE')); print(d.get('cycle_count',0))" 2>/dev/null || echo "0")
+    CYCLE_POS=$(python3 -c "import json; d=json.load(open('$STATE_FILE')); print(d.get('cycle_position',0))" 2>/dev/null || echo "0")
+    AVG_IMPACT=$(python3 -c "import json; d=json.load(open('$STATE_FILE')); print(d.get('avg_impact',0))" 2>/dev/null || echo "0")
+  else
+    CYCLE_COUNT=0
+    CYCLE_POS=0
+    AVG_IMPACT=0
+    # Create initial state
+    echo '{"cycle_count":0,"cycle_position":0,"mega_cycle":0,"last_impact":null,"impact_history":[],"avg_impact":0,"mode":"full","last_cycle_date":"","north_star_counts":{"V":0,"E":0,"R":0,"A":0}}' > "$STATE_FILE"
+  fi
 }
 
 failures=0
@@ -47,6 +62,11 @@ log "Cooldown: ${COOLDOWN_SECONDS}s"
 while true; do
   # Ensure keychain is unlocked (needed for Claude OAuth on macOS)
   unlock_keychain
+
+  # Read loop state
+  read_state
+  NEXT_CYCLE=$((CYCLE_COUNT + 1))
+
   # Rate control gate
   rate_pct=$(check_rate_control)
   if (( $(echo "$rate_pct > 95" | bc -l 2>/dev/null || echo 0) )); then
@@ -55,16 +75,39 @@ while true; do
     continue
   fi
 
+  # Determine mode
   if (( $(echo "$rate_pct > 80" | bc -l 2>/dev/null || echo 0) )); then
     log "ECO mode: rate ${rate_pct}% > 80%. Only escalations."
-    CYCLE_PROMPT="You are in ECO mode (${rate_pct}% budget used). Only process escalations and log status. Do NOT start new tasks."
+    RATE_MODE="ECO"
   elif (( $(echo "$rate_pct > 60" | bc -l 2>/dev/null || echo 0) )); then
     log "LIGHT mode: rate ${rate_pct}% > 60%. P0 tasks only."
-    CYCLE_PROMPT="You are in LIGHT mode (${rate_pct}% budget used). Only work on P0 priority tasks. Use Gemini for all research."
+    RATE_MODE="LIGHT"
   else
     log "FULL mode: rate ${rate_pct}%."
-    CYCLE_PROMPT="Full mode. Execute your autonomous loop: bootstrap, check inbox, pick highest priority task, execute, complete, repeat."
+    RATE_MODE="FULL"
   fi
+
+  # Determine cycle type
+  if [ "$CYCLE_POS" -eq 0 ]; then
+    CYCLE_TYPE="META"
+  else
+    CYCLE_TYPE="REGULAR"
+  fi
+
+  log "Cycle #${NEXT_CYCLE} (position ${CYCLE_POS}/4, type=${CYCLE_TYPE}, avg_impact=${AVG_IMPACT})"
+
+  # Build prompt with state context
+  CYCLE_PROMPT="Autonomous cycle #${NEXT_CYCLE}. Mode: ${RATE_MODE}. Rate: ${rate_pct}%.
+Cycle position: ${CYCLE_POS} of 4 (0=META).
+Type: ${CYCLE_TYPE}.
+Avg impact (last 4): ${AVG_IMPACT}.
+
+Follow the Autonomous Loop Protocol in CLAUDE.md exactly:
+1. Read context/state.json for full state
+2. Execute Session Start sequence
+3. $([ "$CYCLE_TYPE" = "META" ] && echo "This is a META cycle: retrospective + quality check + research + plan next 4 cycles." || echo "This is a regular cycle: pick task #${CYCLE_POS} from context/cycle_plan.md and execute it.")
+4. Execute Session End sequence: self-score, append to work/CYCLE_PROGRESS.md, update context/state.json, commit, log to Hive
+5. Build dashboard: python3 tools/scripts/build_cycle_dashboard.py"
 
   TIMESTAMP=$(date '+%Y%m%d_%H%M%S')
   CYCLE_LOG="$LOG_DIR/cycle_${TIMESTAMP}.log"
@@ -92,13 +135,13 @@ while true; do
   set -e
 
   if [ $EXIT_CODE -eq 0 ]; then
-    log "Cycle completed successfully."
+    log "Cycle #${NEXT_CYCLE} completed successfully."
     failures=0
   elif [ $EXIT_CODE -eq 137 ] || [ $EXIT_CODE -eq 143 ]; then
-    log "Cycle timed out (30 min). Will retry."
+    log "Cycle #${NEXT_CYCLE} timed out (30 min). Will retry."
     failures=$((failures + 1))
   else
-    log "Cycle failed (exit=$EXIT_CODE). Failure $((failures + 1))/${MAX_CONSECUTIVE_FAILURES}."
+    log "Cycle #${NEXT_CYCLE} failed (exit=$EXIT_CODE). Failure $((failures + 1))/${MAX_CONSECUTIVE_FAILURES}."
     failures=$((failures + 1))
   fi
 

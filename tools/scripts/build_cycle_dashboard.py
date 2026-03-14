@@ -1,0 +1,435 @@
+#!/usr/bin/env python3
+"""Build cycle dashboard HTML from CYCLE_PROGRESS.md + state.json.
+
+Generates a self-contained HTML file at devreports/cycle_dashboard.html
+using the Mantissa Design System (base.css, theme.js, nav.js).
+
+Usage:
+    python3 tools/scripts/build_cycle_dashboard.py
+"""
+
+import json
+import re
+import subprocess
+from datetime import datetime
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parent.parent.parent
+PROGRESS_FILE = REPO / "work" / "CYCLE_PROGRESS.md"
+STATE_FILE = REPO / "context" / "state.json"
+ROADMAP_FILE = REPO / "work" / "bets" / "plot_bot_roadmap.md"
+OUTPUT_FILE = REPO / "devreports" / "cycle_dashboard.html"
+
+# --- Data Parsing ---
+
+
+def parse_progress() -> list[dict]:
+    """Parse CYCLE_PROGRESS.md into list of cycle dicts."""
+    if not PROGRESS_FILE.exists():
+        return []
+
+    cycles = []
+    for line in PROGRESS_FILE.read_text().splitlines():
+        line = line.strip()
+        if not line.startswith("|") or line.startswith("| #") or line.startswith("|--"):
+            continue
+        parts = [p.strip() for p in line.split("|")[1:-1]]
+        if len(parts) < 10:
+            continue
+        try:
+            num = int(parts[0])
+        except ValueError:
+            continue
+
+        impact_str = parts[5].strip()
+        try:
+            impact = int(impact_str)
+        except ValueError:
+            impact = None  # META cycles
+
+        stars = [s.strip() for s in parts[6].split(",") if s.strip()]
+
+        try:
+            files = int(parts[7])
+        except ValueError:
+            files = 0
+
+        try:
+            escalations = int(parts[8])
+        except ValueError:
+            escalations = 0
+
+        cycles.append({
+            "num": num,
+            "date": parts[1],
+            "mode": parts[2],
+            "type": parts[3],
+            "title": parts[4],
+            "impact": impact,
+            "stars": stars,
+            "files": files,
+            "escalations": escalations,
+            "commit": parts[9] if parts[9] != "—" else None,
+        })
+
+    return cycles
+
+
+def parse_state() -> dict:
+    """Read state.json."""
+    if not STATE_FILE.exists():
+        return {}
+    return json.loads(STATE_FILE.read_text())
+
+
+def parse_roadmap() -> dict:
+    """Parse roadmap markdown for phase completion stats."""
+    if not ROADMAP_FILE.exists():
+        return {"phases": [], "total": 0, "done": 0}
+
+    text = ROADMAP_FILE.read_text()
+    phases = []
+    current_phase = None
+    phase_done = 0
+    phase_total = 0
+
+    for line in text.splitlines():
+        # Detect phase headers (## Phase N: ...)
+        m = re.match(r"^## (Phase \d+.*)", line)
+        if m:
+            if current_phase:
+                phases.append({"name": current_phase, "done": phase_done, "total": phase_total})
+            current_phase = m.group(1)
+            phase_done = 0
+            phase_total = 0
+            continue
+
+        # Detect sub-phase headers (### N.N ...)
+        m = re.match(r"^### (\d+\.\d+ .*)", line)
+        if m:
+            if current_phase:
+                phases.append({"name": current_phase, "done": phase_done, "total": phase_total})
+            current_phase = m.group(1)
+            phase_done = 0
+            phase_total = 0
+            continue
+
+        # Count checkboxes
+        if re.match(r"^- \[x\]", line):
+            phase_total += 1
+            phase_done += 1
+        elif re.match(r"^- \[ \]", line):
+            phase_total += 1
+
+    if current_phase:
+        phases.append({"name": current_phase, "done": phase_done, "total": phase_total})
+
+    total = sum(p["total"] for p in phases)
+    done = sum(p["done"] for p in phases)
+
+    return {"phases": phases, "total": total, "done": done}
+
+
+def git_log_recent(n: int = 10) -> list[dict]:
+    """Get recent git commits."""
+    try:
+        result = subprocess.run(
+            ["git", "log", f"--oneline", f"-{n}", "--format=%h|%s|%cr"],
+            capture_output=True, text=True, timeout=5, cwd=str(REPO),
+        )
+        if result.returncode != 0:
+            return []
+        commits = []
+        for line in result.stdout.strip().splitlines():
+            parts = line.split("|", 2)
+            if len(parts) == 3:
+                commits.append({"hash": parts[0], "message": parts[1], "age": parts[2]})
+        return commits
+    except Exception:
+        return []
+
+
+# --- HTML Generation ---
+
+
+def build_html(cycles: list[dict], state: dict, roadmap: dict) -> str:
+    """Generate the full dashboard HTML."""
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    # KPIs
+    total_cycles = len(cycles)
+    meta_cycles = sum(1 for c in cycles if c["type"] == "META" or c["type"] == "M")
+    regular_cycles = total_cycles - meta_cycles
+    impacts = [c["impact"] for c in cycles if c["impact"] is not None]
+    avg_impact = sum(impacts) / len(impacts) if impacts else 0
+    total_escalations = sum(c["escalations"] for c in cycles)
+    total_files = sum(c["files"] for c in cycles)
+
+    # North star distribution
+    ns_counts = {"V": 0, "E": 0, "R": 0, "A": 0}
+    for c in cycles:
+        for s in c["stars"]:
+            if s in ns_counts:
+                ns_counts[s] += 1
+
+    # Roadmap progress
+    roadmap_pct = round(roadmap["done"] / roadmap["total"] * 100) if roadmap["total"] > 0 else 0
+
+    # State
+    cycle_pos = state.get("cycle_position", 0)
+    next_type = "META" if cycle_pos == 0 else f"REGULAR (#{cycle_pos}/4)"
+
+    # Impact distribution for sparkline
+    impact_counts = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+    for i in impacts:
+        if i in impact_counts:
+            impact_counts[i] += 1
+
+    # Cycle table rows
+    table_rows = ""
+    for c in reversed(cycles):
+        impact_html = f'<span class="impact-{c["impact"] or 0}">{c["impact"] or "—"}</span>'
+        stars_html = " ".join(f'<span class="m-badge m-badge-{"value" if s == "V" else "elegance" if s == "E" else "reliability" if s == "R" else "awareness"}">{s}</span>' for s in c["stars"])
+        type_cls = {"META": "type-meta", "M": "type-meta", "RESEARCH": "type-research", "R": "type-research", "ANALYSIS": "type-analysis", "A": "type-analysis", "BUILD": "type-build", "B": "type-build", "ESCALATION": "type-escalation", "X": "type-escalation"}.get(c["type"], "")
+        commit_html = f'<code>{c["commit"]}</code>' if c["commit"] else "—"
+        table_rows += f"""<tr>
+          <td class="mono">{c["num"]}</td>
+          <td>{c["date"]}</td>
+          <td>{c["mode"]}</td>
+          <td><span class="type-pill {type_cls}">{c["type"]}</span></td>
+          <td>{c["title"]}</td>
+          <td class="center">{impact_html}</td>
+          <td>{stars_html}</td>
+          <td class="center">{c["files"]}</td>
+          <td class="center">{c["escalations"]}</td>
+          <td>{commit_html}</td>
+        </tr>\n"""
+
+    # Roadmap phase rows
+    phase_rows = ""
+    for p in roadmap["phases"]:
+        if p["total"] == 0:
+            continue
+        pct = round(p["done"] / p["total"] * 100) if p["total"] > 0 else 0
+        bar_color = "var(--m-value)" if pct == 100 else "var(--m-elegance)" if pct > 50 else "var(--m-awareness)"
+        phase_rows += f"""<div class="phase-row">
+          <div class="phase-name">{p["name"]}</div>
+          <div class="phase-bar-track"><div class="phase-bar-fill" style="width:{pct}%;background:{bar_color}"></div></div>
+          <div class="phase-count">{p["done"]}/{p["total"]}</div>
+        </div>\n"""
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plot Bot — Cycle Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {{
+  --c-page: #FCFCF4; --c-card: #F0EDE4; --c-ink: #191918; --c-muted: #7C7C87;
+  --c-subtle: #E8E5DE; --c-highlight: #F5F2EA; --c-footer: #191918;
+  --m-value: #C4A24D; --m-elegance: #3D9E8F; --m-reliability: #6B7B8D; --m-awareness: #8B7EC8;
+  --m-value-light: #F5EDD4; --m-elegance-light: #D9F0EC; --m-reliability-light: #DDE3E8; --m-awareness-light: #E5E0F5;
+  --m-value-text: #7A6420; --m-elegance-text: #14655A; --m-reliability-text: #3D4E5C; --m-awareness-text: #4E4188;
+  --radius: 5px;
+}}
+@media (prefers-color-scheme: dark) {{
+  :root {{
+    --c-page: #141413; --c-card: #1E1E1D; --c-ink: #EDEDEC; --c-muted: #929292;
+    --c-subtle: #2A2A29; --c-highlight: #222221; --c-footer: #0D0D0C;
+    --m-value: #D4B86A; --m-elegance: #66B5A8; --m-reliability: #8FA0B0; --m-awareness: #A99ADB;
+    --m-value-light: rgba(196,162,77,0.20); --m-elegance-light: rgba(61,158,143,0.20);
+    --m-reliability-light: rgba(107,123,141,0.20); --m-awareness-light: rgba(139,126,200,0.20);
+    --m-value-text: #F5EDD4; --m-elegance-text: #B8E0D9; --m-reliability-text: #DDE3E8; --m-awareness-text: #E5E0F5;
+  }}
+}}
+* {{ margin:0; padding:0; box-sizing:border-box; }}
+body {{ font-family:'Inter',system-ui,sans-serif; background:var(--c-page); color:var(--c-ink); padding:24px; max-width:1200px; margin:0 auto; }}
+h1 {{ font-family:'Newsreader',Georgia,serif; font-size:28px; font-weight:600; letter-spacing:-0.01em; margin-bottom:4px; }}
+.subtitle {{ color:var(--c-muted); font-size:13px; margin-bottom:24px; }}
+
+/* KPIs */
+.kpi-grid {{ display:grid; grid-template-columns:repeat(6, 1fr); gap:12px; margin-bottom:24px; }}
+@media (max-width:800px) {{ .kpi-grid {{ grid-template-columns:repeat(3, 1fr); }} }}
+.kpi {{ background:var(--c-card); border-radius:var(--radius); padding:14px 16px; }}
+.kpi-label {{ font-size:10px; color:var(--c-muted); text-transform:uppercase; letter-spacing:0.08em; margin-bottom:6px; }}
+.kpi-value {{ font-size:26px; font-weight:600; }}
+.kpi-sub {{ font-size:11px; color:var(--c-muted); margin-top:2px; }}
+
+/* Cards */
+.grid-2 {{ display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px; }}
+@media (max-width:800px) {{ .grid-2 {{ grid-template-columns:1fr; }} }}
+.card {{ background:var(--c-card); border-radius:var(--radius); padding:16px 20px; }}
+.card-title {{ font-family:'Newsreader',Georgia,serif; font-size:16px; font-weight:600; margin-bottom:12px; }}
+
+/* VERA rings */
+.vera-row {{ display:flex; gap:20px; justify-content:center; }}
+.vera-item {{ text-align:center; }}
+.vera-ring {{ width:64px; height:64px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-family:'JetBrains Mono',monospace; font-size:18px; font-weight:600; margin-bottom:6px; }}
+.vera-label {{ font-size:10px; color:var(--c-muted); text-transform:uppercase; letter-spacing:0.05em; }}
+
+/* Roadmap phases */
+.phase-row {{ display:flex; align-items:center; gap:10px; margin-bottom:8px; }}
+.phase-name {{ font-size:11px; width:200px; flex-shrink:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }}
+.phase-bar-track {{ flex:1; height:14px; background:var(--c-subtle); border-radius:3px; overflow:hidden; }}
+.phase-bar-fill {{ height:100%; border-radius:3px; transition:width 300ms; }}
+.phase-count {{ font-size:11px; font-family:'JetBrains Mono',monospace; color:var(--c-muted); width:40px; text-align:right; flex-shrink:0; }}
+
+/* Cycle table */
+.tbl {{ width:100%; border-collapse:collapse; font-size:12px; margin-top:8px; }}
+.tbl th {{ text-align:left; color:var(--c-muted); font-weight:400; padding:8px 6px; border-bottom:1px solid var(--c-subtle); font-size:11px; text-transform:uppercase; letter-spacing:0.05em; }}
+.tbl td {{ padding:6px 6px; border-bottom:1px solid var(--c-subtle); vertical-align:middle; }}
+.tbl tr:hover {{ background:var(--c-highlight); }}
+.tbl .center {{ text-align:center; }}
+.tbl .mono {{ font-family:'JetBrains Mono',monospace; font-size:11px; }}
+.tbl code {{ font-family:'JetBrains Mono',monospace; font-size:10px; background:var(--c-subtle); padding:1px 5px; border-radius:3px; }}
+
+/* Type pills */
+.type-pill {{ display:inline-block; font-size:10px; font-weight:600; padding:2px 8px; border-radius:10px; }}
+.type-meta {{ background:var(--m-awareness-light); color:var(--m-awareness-text); }}
+.type-research {{ background:var(--m-elegance-light); color:var(--m-elegance-text); }}
+.type-analysis {{ background:var(--m-value-light); color:var(--m-value-text); }}
+.type-build {{ background:var(--m-reliability-light); color:var(--m-reliability-text); }}
+.type-escalation {{ background:rgba(199,93,74,0.15); color:#C75D4A; }}
+
+/* Impact colors */
+.impact-1,.impact-2 {{ color:var(--c-muted); }}
+.impact-3 {{ color:var(--m-reliability); }}
+.impact-4 {{ color:var(--m-elegance); }}
+.impact-5 {{ color:var(--m-value); font-weight:600; }}
+
+/* VERA badges */
+.m-badge {{ display:inline-block; font-size:9px; font-weight:600; padding:1px 6px; border-radius:8px; margin-right:2px; }}
+.m-badge-value {{ background:var(--m-value-light); color:var(--m-value-text); }}
+.m-badge-elegance {{ background:var(--m-elegance-light); color:var(--m-elegance-text); }}
+.m-badge-reliability {{ background:var(--m-reliability-light); color:var(--m-reliability-text); }}
+.m-badge-awareness {{ background:var(--m-awareness-light); color:var(--m-awareness-text); }}
+
+/* Status bar */
+.status {{ display:flex; gap:16px; align-items:center; padding:10px 16px; background:var(--c-card); border-radius:var(--radius); margin-bottom:24px; font-size:12px; }}
+.status-dot {{ width:8px; height:8px; border-radius:50%; }}
+.status-green {{ background:#3D9E8F; }}
+.status-yellow {{ background:#C4A24D; }}
+.status-red {{ background:#C75D4A; }}
+</style>
+</head>
+<body>
+
+<h1>Plot Bot</h1>
+<p class="subtitle">Cycle Dashboard — generated {now}</p>
+
+<!-- Status -->
+<div class="status">
+  <span class="status-dot {"status-green" if avg_impact >= 3 else "status-yellow" if avg_impact >= 2 else "status-red"}"></span>
+  <span>Next: <strong>{next_type}</strong></span>
+  <span>|</span>
+  <span>Cycles: <strong>{total_cycles}</strong></span>
+  <span>|</span>
+  <span>Mega-cycles: <strong>{state.get("mega_cycle", 0)}</strong></span>
+  <span>|</span>
+  <span>Avg impact: <strong>{avg_impact:.1f}</strong></span>
+  <span>|</span>
+  <span>Roadmap: <strong>{roadmap_pct}%</strong> ({roadmap["done"]}/{roadmap["total"]})</span>
+</div>
+
+<!-- KPIs -->
+<div class="kpi-grid">
+  <div class="kpi">
+    <div class="kpi-label">Cycles</div>
+    <div class="kpi-value">{total_cycles}</div>
+    <div class="kpi-sub">{meta_cycles} META + {regular_cycles} regular</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Avg Impact</div>
+    <div class="kpi-value">{avg_impact:.1f}</div>
+    <div class="kpi-sub">target &ge; 3.0</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Escalations</div>
+    <div class="kpi-value">{total_escalations}</div>
+    <div class="kpi-sub">to Vadim</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Files Changed</div>
+    <div class="kpi-value">{total_files}</div>
+    <div class="kpi-sub">across all cycles</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Roadmap</div>
+    <div class="kpi-value">{roadmap_pct}%</div>
+    <div class="kpi-sub">{roadmap["done"]}/{roadmap["total"]} tasks</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Position</div>
+    <div class="kpi-value">{cycle_pos}/4</div>
+    <div class="kpi-sub">next: {next_type.lower()}</div>
+  </div>
+</div>
+
+<!-- VERA + Roadmap -->
+<div class="grid-2">
+  <div class="card">
+    <div class="card-title">North Stars (VERA)</div>
+    <div class="vera-row">
+      <div class="vera-item">
+        <div class="vera-ring" style="background:var(--m-value-light);color:var(--m-value-text);">{ns_counts["V"]}</div>
+        <div class="vera-label">Value</div>
+      </div>
+      <div class="vera-item">
+        <div class="vera-ring" style="background:var(--m-elegance-light);color:var(--m-elegance-text);">{ns_counts["E"]}</div>
+        <div class="vera-label">Elegance</div>
+      </div>
+      <div class="vera-item">
+        <div class="vera-ring" style="background:var(--m-reliability-light);color:var(--m-reliability-text);">{ns_counts["R"]}</div>
+        <div class="vera-label">Reliability</div>
+      </div>
+      <div class="vera-item">
+        <div class="vera-ring" style="background:var(--m-awareness-light);color:var(--m-awareness-text);">{ns_counts["A"]}</div>
+        <div class="vera-label">Awareness</div>
+      </div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title">Roadmap Progress</div>
+    {phase_rows if phase_rows else '<p style="color:var(--c-muted);font-size:12px;">No roadmap data</p>'}
+  </div>
+</div>
+
+<!-- Cycle Log -->
+<div class="card">
+  <div class="card-title">Cycle Log</div>
+  <table class="tbl">
+    <thead>
+      <tr>
+        <th>#</th><th>Date</th><th>Mode</th><th>Type</th><th>Title</th>
+        <th class="center">Impact</th><th>Stars</th><th class="center">Files</th>
+        <th class="center">Esc</th><th>Commit</th>
+      </tr>
+    </thead>
+    <tbody>
+      {table_rows if table_rows else '<tr><td colspan="10" style="color:var(--c-muted);text-align:center;">No cycles yet</td></tr>'}
+    </tbody>
+  </table>
+</div>
+
+</body>
+</html>"""
+
+
+def main() -> None:
+    OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+    cycles = parse_progress()
+    state = parse_state()
+    roadmap = parse_roadmap()
+
+    html = build_html(cycles, state, roadmap)
+    OUTPUT_FILE.write_text(html)
+    print(f"Dashboard built: {OUTPUT_FILE}")
+    print(f"  Cycles: {len(cycles)}, Roadmap: {roadmap['done']}/{roadmap['total']}")
+
+
+if __name__ == "__main__":
+    main()
