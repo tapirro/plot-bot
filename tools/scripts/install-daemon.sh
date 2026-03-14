@@ -59,8 +59,11 @@ if launchctl list 2>/dev/null | grep -q com.mantissa.plot-bot; then
   launchctl unload "$PLIST_DST" 2>/dev/null || true
 fi
 
-# Install plist
-cp "$PLIST_SRC" "$PLIST_DST"
+# Install plist — inject keychain password for auto-unlock
+read -sp "Mac login password (for keychain unlock): " KCH_PW
+echo ""
+sed "s|SET_ON_INSTALL|${KCH_PW}|" "$PLIST_SRC" > "$PLIST_DST"
+echo "Keychain password injected into plist."
 
 # Load
 launchctl load "$PLIST_DST"

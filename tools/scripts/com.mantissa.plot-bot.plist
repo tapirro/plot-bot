@@ -38,6 +38,8 @@
         <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
         <key>HOME</key>
         <string>/Users/polansk</string>
+        <key>PLOT_BOT_KEYCHAIN_PW</key>
+        <string>SET_ON_INSTALL</string>
     </dict>
 </dict>
 </plist>

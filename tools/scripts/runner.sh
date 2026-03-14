@@ -9,10 +9,13 @@
 #
 set -euo pipefail
 
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+
 REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 LOG_DIR="${REPO_DIR}/logs"
 COOLDOWN_SECONDS="${PLOT_BOT_COOLDOWN:-300}"     # 5 min between cycles
 MAX_CONSECUTIVE_FAILURES=5
+KEYCHAIN_PASSWORD="${PLOT_BOT_KEYCHAIN_PW:-}"
 RATE_LIMIT_PAUSE=3600                            # 1 hour if rate-limited
 
 mkdir -p "$LOG_DIR"
@@ -30,11 +33,20 @@ check_rate_control() {
 
 failures=0
 
+unlock_keychain() {
+  if [ -n "$KEYCHAIN_PASSWORD" ]; then
+    security unlock-keychain -p "$KEYCHAIN_PASSWORD" \
+      "$HOME/Library/Keychains/login.keychain-db" 2>/dev/null || true
+  fi
+}
+
 log "=== Plot Bot Runner started ==="
 log "Repo: $REPO_DIR"
 log "Cooldown: ${COOLDOWN_SECONDS}s"
 
 while true; do
+  # Ensure keychain is unlocked (needed for Claude OAuth on macOS)
+  unlock_keychain
   # Rate control gate
   rate_pct=$(check_rate_control)
   if (( $(echo "$rate_pct > 95" | bc -l 2>/dev/null || echo 0) )); then
