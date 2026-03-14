@@ -85,51 +85,67 @@ def parse_state() -> dict:
 
 
 def parse_roadmap() -> dict:
-    """Parse roadmap markdown for phase completion stats."""
+    """Parse roadmap markdown for phase completion stats and individual tasks."""
     if not ROADMAP_FILE.exists():
-        return {"phases": [], "total": 0, "done": 0}
+        return {"phases": [], "total": 0, "done": 0, "tasks": []}
 
     text = ROADMAP_FILE.read_text()
-    phases = []
+    phases: list[dict] = []
+    tasks: list[dict] = []
     current_phase = None
+    current_section = None
     phase_done = 0
     phase_total = 0
 
     for line in text.splitlines():
         # Detect phase headers (## Phase N: ...)
-        m = re.match(r"^## (Phase \d+.*)", line)
+        m = re.match(r"^## (Phase \d+[^#]*)", line)
         if m:
             if current_phase:
                 phases.append({"name": current_phase, "done": phase_done, "total": phase_total})
-            current_phase = m.group(1)
+            current_phase = m.group(1).strip()
+            current_section = current_phase
             phase_done = 0
             phase_total = 0
             continue
 
-        # Detect sub-phase headers (### N.N ...)
+        # Detect sub-section headers (### N.N ...)
         m = re.match(r"^### (\d+\.\d+ .*)", line)
         if m:
-            if current_phase:
+            if current_phase and phase_total > 0:
                 phases.append({"name": current_phase, "done": phase_done, "total": phase_total})
-            current_phase = m.group(1)
-            phase_done = 0
-            phase_total = 0
+                phase_done = 0
+                phase_total = 0
+            current_phase = m.group(1).strip()
+            current_section = current_phase
             continue
 
-        # Count checkboxes
-        if re.match(r"^- \[x\]", line):
+        # Parse checkbox tasks
+        m_done = re.match(r"^- \[x\] (.+)", line)
+        m_todo = re.match(r"^- \[ \] (.+)", line)
+        if m_done:
             phase_total += 1
             phase_done += 1
-        elif re.match(r"^- \[ \]", line):
+            tasks.append({
+                "section": current_section or "?",
+                "text": m_done.group(1).strip(),
+                "done": True,
+            })
+        elif m_todo:
             phase_total += 1
+            tasks.append({
+                "section": current_section or "?",
+                "text": m_todo.group(1).strip(),
+                "done": False,
+            })
 
-    if current_phase:
+    if current_phase and phase_total > 0:
         phases.append({"name": current_phase, "done": phase_done, "total": phase_total})
 
     total = sum(p["total"] for p in phases)
     done = sum(p["done"] for p in phases)
 
-    return {"phases": phases, "total": total, "done": done}
+    return {"phases": phases, "total": total, "done": done, "tasks": tasks}
 
 
 def git_log_recent(n: int = 10) -> list[dict]:
@@ -330,6 +346,49 @@ def build_html(cycles: list[dict], state: dict, roadmap: dict, heartbeat: dict, 
           <div class="phase-count">{p["done"]}/{p["total"]}</div>
         </div>\n"""
 
+    # Backlog: group tasks by section
+    all_tasks = roadmap.get("tasks", [])
+    todo_tasks = [t for t in all_tasks if not t["done"]]
+    done_tasks = [t for t in all_tasks if t["done"]]
+    sections_order: list[str] = []
+    sections_map: dict[str, list[dict]] = {}
+    for t in all_tasks:
+        s = t["section"]
+        if s not in sections_map:
+            sections_order.append(s)
+            sections_map[s] = []
+        sections_map[s].append(t)
+
+    backlog_html = ""
+    for idx, sec in enumerate(sections_order):
+        sec_tasks = sections_map[sec]
+        sec_done = sum(1 for t in sec_tasks if t["done"])
+        sec_total = len(sec_tasks)
+        sec_pct = round(sec_done / sec_total * 100) if sec_total > 0 else 0
+        all_done = sec_done == sec_total
+        bar_color = "var(--m-value)" if all_done else "var(--m-elegance)" if sec_pct > 50 else "var(--m-awareness)"
+        # Collapse done sections by default
+        collapsed = "collapsed" if all_done else ""
+        toggle_cls = "open" if not all_done else ""
+        tasks_li = ""
+        for t in sec_tasks:
+            check_cls = "done" if t["done"] else ""
+            check_icon = "&#10003;" if t["done"] else ""
+            text_cls = "done" if t["done"] else ""
+            # Escape HTML in task text
+            safe_text = t["text"].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            tasks_li += f'<div class="backlog-task"><span class="backlog-check {check_cls}">{check_icon}</span><span class="backlog-text {text_cls}">{safe_text}</span></div>\n'
+
+        backlog_html += f"""<div class="backlog-section" data-section="{idx}">
+          <div class="backlog-header" onclick="toggleSection({idx})">
+            <span class="backlog-toggle {toggle_cls}" id="toggle-{idx}">&#9654;</span>
+            <span class="backlog-name">{sec}</span>
+            <div class="backlog-bar"><div class="backlog-bar-fill" style="width:{sec_pct}%;background:{bar_color}"></div></div>
+            <span class="backlog-count">{sec_done}/{sec_total}</span>
+          </div>
+          <div class="backlog-tasks {collapsed}" id="tasks-{idx}">{tasks_li}</div>
+        </div>\n"""
+
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -453,6 +512,29 @@ h1 {{ font-family:'Newsreader',Georgia,serif; font-size:28px; font-weight:600; l
 .agent-ctrl-start:hover {{ background:rgba(61,158,143,0.08); }}
 .agent-ctrl:disabled {{ opacity:0.5; cursor:not-allowed; }}
 .agent-ctrl svg {{ width:14px; height:14px; }}
+
+/* Backlog */
+.backlog-section {{ margin-bottom:8px; }}
+.backlog-header {{ display:flex; align-items:center; gap:8px; padding:8px 0 4px; cursor:pointer; user-select:none; }}
+.backlog-header:hover {{ opacity:0.8; }}
+.backlog-toggle {{ font-size:10px; color:var(--c-muted); transition:transform 150ms; }}
+.backlog-toggle.open {{ transform:rotate(90deg); }}
+.backlog-name {{ font-size:12px; font-weight:600; }}
+.backlog-count {{ font-size:10px; color:var(--c-muted); font-family:'JetBrains Mono',monospace; }}
+.backlog-bar {{ flex:1; height:6px; background:var(--c-subtle); border-radius:3px; max-width:120px; overflow:hidden; }}
+.backlog-bar-fill {{ height:100%; border-radius:3px; }}
+.backlog-tasks {{ padding-left:20px; }}
+.backlog-tasks.collapsed {{ display:none; }}
+.backlog-task {{ display:flex; align-items:flex-start; gap:6px; padding:3px 0; font-size:11px; line-height:1.4; }}
+.backlog-check {{ flex-shrink:0; width:14px; height:14px; border:1.5px solid var(--c-subtle); border-radius:3px; margin-top:1px; display:flex; align-items:center; justify-content:center; }}
+.backlog-check.done {{ background:var(--m-elegance); border-color:var(--m-elegance); color:#fff; font-size:9px; }}
+.backlog-text {{ color:var(--c-ink); }}
+.backlog-text.done {{ color:var(--c-muted); text-decoration:line-through; }}
+.backlog-summary {{ display:flex; gap:16px; font-size:12px; color:var(--c-muted); margin-bottom:12px; padding-bottom:8px; border-bottom:1px solid var(--c-subtle); }}
+.backlog-summary strong {{ color:var(--c-ink); }}
+.backlog-filter {{ display:flex; gap:6px; margin-bottom:12px; }}
+.backlog-filter-btn {{ font-size:10px; padding:3px 10px; border-radius:10px; border:1px solid var(--c-subtle); background:none; color:var(--c-muted); cursor:pointer; }}
+.backlog-filter-btn.active {{ background:var(--c-ink); color:var(--c-page); border-color:var(--c-ink); }}
 </style>
 </head>
 <body>
@@ -543,6 +625,23 @@ h1 {{ font-family:'Newsreader',Georgia,serif; font-size:28px; font-weight:600; l
   </div>
 </div>
 
+<!-- Backlog -->
+<div class="card" style="margin-bottom:16px;">
+  <div class="card-title">Backlog</div>
+  <div class="backlog-summary">
+    <span><strong>{len(todo_tasks)}</strong> open</span>
+    <span><strong>{len(done_tasks)}</strong> done</span>
+    <span><strong>{len(all_tasks)}</strong> total</span>
+    <span>{roadmap_pct}% complete</span>
+  </div>
+  <div class="backlog-filter">
+    <button class="backlog-filter-btn active" onclick="filterBacklog('all')">All</button>
+    <button class="backlog-filter-btn" onclick="filterBacklog('open')">Open</button>
+    <button class="backlog-filter-btn" onclick="filterBacklog('done')">Done</button>
+  </div>
+  {backlog_html if backlog_html else '<p style="color:var(--c-muted);font-size:12px;">No backlog data</p>'}
+</div>
+
 <!-- Cycle Log -->
 <div class="card">
   <div class="card-title">Cycle Log</div>
@@ -599,6 +698,32 @@ h1 {{ font-family:'Newsreader',Georgia,serif; font-size:28px; font-weight:600; l
   }}
   setInterval(pollStatus, 15000);
 }})();
+
+// Backlog: toggle sections
+function toggleSection(idx) {{
+  const tasks = document.getElementById('tasks-' + idx);
+  const toggle = document.getElementById('toggle-' + idx);
+  if (!tasks || !toggle) return;
+  tasks.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}}
+
+// Backlog: filter
+function filterBacklog(mode) {{
+  document.querySelectorAll('.backlog-filter-btn').forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+  document.querySelectorAll('.backlog-task').forEach(t => {{
+    const isDone = t.querySelector('.backlog-check.done') !== null;
+    if (mode === 'all') t.style.display = '';
+    else if (mode === 'open') t.style.display = isDone ? 'none' : '';
+    else if (mode === 'done') t.style.display = isDone ? '' : 'none';
+  }});
+  // Hide empty sections
+  document.querySelectorAll('.backlog-section').forEach(s => {{
+    const visible = s.querySelectorAll('.backlog-task:not([style*="display: none"])');
+    s.style.display = visible.length === 0 ? 'none' : '';
+  }});
+}}
 
 // Agent control: pause / resume
 async function agentControl(action) {{
