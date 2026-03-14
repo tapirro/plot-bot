@@ -21,6 +21,8 @@ HEARTBEAT_FILE = REPO / "context" / "heartbeat.json"
 PAUSE_FILE = REPO / "context" / "agent_paused"
 ROADMAP_FILE = REPO / "work" / "bets" / "plot_bot_roadmap.md"
 OUTPUT_FILE = REPO / "devreports" / "cycle_dashboard.html"
+AGENT_PLIST_LABEL = "com.mantissa.plot-bot"
+AGENT_PLIST_PATH = Path.home() / "Library" / "LaunchAgents" / f"{AGENT_PLIST_LABEL}.plist"
 
 # --- Data Parsing ---
 
@@ -180,8 +182,9 @@ def parse_heartbeat() -> dict:
         return {"status": "unknown", "cycle": 0, "timestamp": ""}
 
 
-def _live_banner_html(hb: dict) -> str:
+def _live_banner_html(hb: dict, is_paused: bool = False) -> str:
     """Generate live status banner HTML from heartbeat data."""
+    runner_alive = _is_runner_alive()
     status = hb.get("status", "unknown")
     cycle = hb.get("cycle", 0)
     ctype = hb.get("cycle_type", "?")
@@ -253,21 +256,43 @@ def _live_banner_html(hb: dict) -> str:
             f'</div>'
         )
     else:
+        if is_paused:
+            label = "Agent paused"
+            detail = "Paused by operator — press Start to resume"
+        elif not runner_alive:
+            label = "Agent stopped"
+            detail = "Service not loaded — press Start to launch"
+        else:
+            label = "Agent idle"
+            detail = "Runner alive, waiting for next cycle"
         return (
             f'<div class="live-banner live-idle">'
-            f'<span class="live-dot live-dot-idle"></span>'
-            f'<span class="live-label">Bot stopped</span>'
-            f'<span class="live-detail">No heartbeat data</span>'
-            f'<span class="live-time"></span>'
+            f'<span class="live-dot live-dot-{"paused" if is_paused else "idle"}"></span>'
+            f'<span class="live-label">{label}</span>'
+            f'<span class="live-detail">{detail}</span>'
+            f'<span class="live-time">{elapsed}</span>'
             f'</div>'
         )
 
 
+def _is_runner_alive() -> bool:
+    """Check if agent runner launchd service is loaded."""
+    try:
+        r = subprocess.run(
+            ["launchctl", "list", AGENT_PLIST_LABEL],
+            capture_output=True, text=True, timeout=5,
+        )
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
 def _agent_control_html(is_paused: bool) -> str:
     """Generate pause/start button HTML."""
-    if is_paused:
+    runner_alive = _is_runner_alive()
+    if is_paused or not runner_alive:
         return (
-            '<button class="agent-ctrl agent-ctrl-start" id="agent-ctrl" onclick="agentControl(\'resume\')">'
+            '<button class="agent-ctrl agent-ctrl-start" id="agent-ctrl" onclick="agentControl(\'start\')">'
             '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>'
             'Start Agent'
             '</button>'
@@ -512,6 +537,8 @@ h1 {{ font-family:'Newsreader',Georgia,serif; font-size:28px; font-weight:600; l
 .agent-ctrl-start:hover {{ background:rgba(61,158,143,0.08); }}
 .agent-ctrl:disabled {{ opacity:0.5; cursor:not-allowed; }}
 .agent-ctrl svg {{ width:14px; height:14px; }}
+.agent-ctrl svg.spin {{ animation:spin 1s linear infinite; }}
+@keyframes spin {{ from {{ transform:rotate(0deg); }} to {{ transform:rotate(360deg); }} }}
 
 /* Backlog */
 .backlog-section {{ margin-bottom:8px; }}
@@ -546,7 +573,7 @@ h1 {{ font-family:'Newsreader',Georgia,serif; font-size:28px; font-weight:600; l
 <p class="subtitle">Cycle Dashboard — generated {now}</p>
 
 <!-- Live Status -->
-{_live_banner_html(heartbeat)}
+{_live_banner_html(heartbeat, is_paused=is_paused)}
 
 <!-- Status -->
 <div class="status">
@@ -725,22 +752,81 @@ function filterBacklog(mode) {{
   }});
 }}
 
-// Agent control: pause / resume
+// Agent control: start / pause with visual feedback + polling
 async function agentControl(action) {{
   const btn = document.getElementById('agent-ctrl');
-  if (btn) btn.disabled = true;
+  const banner = document.querySelector('.live-banner');
+  if (!btn) return;
+
+  // Save original button content
+  const origHTML = btn.innerHTML;
+  btn.disabled = true;
+
+  // Show loading state
+  if (action === 'start') {{
+    btn.innerHTML = '<svg class="spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4m0 12v4m-7.07-3.93l2.83-2.83m8.48-8.48l2.83-2.83M2 12h4m12 0h4m-3.93 7.07l-2.83-2.83M7.76 7.76L4.93 4.93"/></svg>Starting agent...';
+    if (banner) {{
+      banner.className = 'live-banner live-cooldown';
+      banner.innerHTML = '<span class="live-dot live-dot-cooldown"></span><span class="live-label">Starting agent...</span><span class="live-detail">Loading launchd service</span><span class="live-time"></span>';
+    }}
+  }} else {{
+    btn.innerHTML = '<svg class="spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4m0 12v4m-7.07-3.93l2.83-2.83m8.48-8.48l2.83-2.83M2 12h4m12 0h4m-3.93 7.07l-2.83-2.83M7.76 7.76L4.93 4.93"/></svg>Pausing...';
+    if (banner) {{
+      banner.innerHTML = '<span class="live-dot live-dot-cooldown"></span><span class="live-label">Pausing agent...</span><span class="live-detail">Current cycle will finish first</span><span class="live-time"></span>';
+    }}
+  }}
+
   try {{
     const r = await fetch('/api/agent/' + action, {{ method: 'POST' }});
-    if (r.ok) {{
-      location.reload();
-    }} else {{
-      const d = await r.json().catch(() => ({{}}));
-      alert('Error: ' + (d.error || r.statusText));
-      if (btn) btn.disabled = false;
+    const d = await r.json();
+    if (!r.ok) {{
+      showError(d.error || 'Unknown error');
+      btn.innerHTML = origHTML;
+      btn.disabled = false;
+      return;
     }}
+
+    // Poll until status changes or timeout (30s for start, 5s for pause)
+    const maxWait = action === 'start' ? 30000 : 5000;
+    const started = Date.now();
+    const targetStatus = action === 'start' ? 'running' : 'paused';
+
+    while (Date.now() - started < maxWait) {{
+      await new Promise(ok => setTimeout(ok, 1500));
+      try {{
+        const sr = await fetch('/api/status');
+        const sd = await sr.json();
+        if (action === 'start' && sd.runner_alive) {{
+          // Runner is up — success even if first heartbeat not yet written
+          if (banner) {{
+            banner.className = 'live-banner live-running';
+            banner.innerHTML = '<span class="live-dot live-dot-running"></span><span class="live-label">Agent started</span><span class="live-detail">Reloading...</span><span class="live-time"></span>';
+          }}
+          setTimeout(() => location.reload(), 800);
+          return;
+        }}
+        if (action === 'pause' && sd.paused) {{
+          location.reload();
+          return;
+        }}
+      }} catch(e) {{ /* ignore poll errors */ }}
+    }}
+
+    // Timeout — reload anyway to show current state
+    location.reload();
+
   }} catch(e) {{
-    alert('Dashboard not in serve mode — control unavailable');
-    if (btn) btn.disabled = false;
+    showError('Dashboard not in serve mode — control unavailable');
+    btn.innerHTML = origHTML;
+    btn.disabled = false;
+  }}
+}}
+
+function showError(msg) {{
+  const banner = document.querySelector('.live-banner');
+  if (banner) {{
+    banner.className = 'live-banner live-failed';
+    banner.innerHTML = '<span class="live-dot live-dot-failed"></span><span class="live-label">Error</span><span class="live-detail">' + msg + '</span><span class="live-time"></span>';
   }}
 }}
 </script>
@@ -788,7 +874,17 @@ def serve(port: int = 3000) -> None:
             if path == "/api/status":
                 hb = parse_heartbeat()
                 st = parse_state()
-                data = {**hb, "state": st, "paused": PAUSE_FILE.exists()}
+                # Check if runner process is alive via launchctl
+                runner_alive = False
+                try:
+                    r = subprocess.run(
+                        ["launchctl", "list", AGENT_PLIST_LABEL],
+                        capture_output=True, text=True, timeout=5,
+                    )
+                    runner_alive = r.returncode == 0
+                except Exception:
+                    pass
+                data = {**hb, "state": st, "paused": PAUSE_FILE.exists(), "runner_alive": runner_alive}
                 self._json_response(200, data)
                 return
 
@@ -814,16 +910,74 @@ def serve(port: int = 3000) -> None:
             path = self.path.split("?")[0].rstrip("/")
 
             if path == "/api/agent/pause":
+                # Soft pause: write signal file, runner finishes current cycle then waits
                 PAUSE_FILE.write_text(
                     f'{{"paused_at": "{datetime.now().isoformat()}", "by": "dashboard"}}\n'
                 )
-                self._json_response(200, {"ok": True, "paused": True})
+                self._json_response(200, {"ok": True, "paused": True,
+                    "message": "Pause signal set. Current cycle will finish, then agent pauses."})
                 return
 
-            if path == "/api/agent/resume":
+            if path == "/api/agent/start":
+                # Remove pause file first
                 if PAUSE_FILE.exists():
                     PAUSE_FILE.unlink()
-                self._json_response(200, {"ok": True, "paused": False})
+
+                runner_alive = False
+                try:
+                    r = subprocess.run(
+                        ["launchctl", "list", AGENT_PLIST_LABEL],
+                        capture_output=True, text=True, timeout=5,
+                    )
+                    runner_alive = r.returncode == 0
+                except Exception:
+                    pass
+
+                if runner_alive:
+                    # Runner is already loaded — just needed the pause file removed
+                    self._json_response(200, {"ok": True, "paused": False,
+                        "message": "Pause cleared. Runner already active."})
+                    return
+
+                # Runner not loaded — need to load it via launchctl
+                if not AGENT_PLIST_PATH.exists():
+                    src = REPO / "tools" / "scripts" / f"{AGENT_PLIST_LABEL}.plist"
+                    if src.exists():
+                        import shutil
+                        shutil.copy2(str(src), str(AGENT_PLIST_PATH))
+                    else:
+                        self._json_response(500, {"error": f"Plist not found: {src}"})
+                        return
+
+                # Unload (idempotent), then load
+                subprocess.run(
+                    ["launchctl", "unload", str(AGENT_PLIST_PATH)],
+                    capture_output=True, timeout=10,
+                )
+                result = subprocess.run(
+                    ["launchctl", "load", str(AGENT_PLIST_PATH)],
+                    capture_output=True, text=True, timeout=10,
+                )
+                if result.returncode != 0:
+                    self._json_response(500, {
+                        "error": f"launchctl load failed: {result.stderr.strip()}",
+                    })
+                    return
+                self._json_response(200, {"ok": True, "paused": False,
+                    "message": "Agent service loaded and started."})
+                return
+
+            if path == "/api/agent/stop":
+                # Hard stop: unload launchd service (kills runner mid-cycle if running)
+                PAUSE_FILE.write_text(
+                    f'{{"paused_at": "{datetime.now().isoformat()}", "by": "dashboard", "hard_stop": true}}\n'
+                )
+                result = subprocess.run(
+                    ["launchctl", "unload", str(AGENT_PLIST_PATH)],
+                    capture_output=True, text=True, timeout=10,
+                )
+                self._json_response(200, {"ok": True, "stopped": True,
+                    "message": "Agent service unloaded."})
                 return
 
             self._json_response(404, {"error": "not found"})
