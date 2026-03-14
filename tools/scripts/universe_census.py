@@ -50,72 +50,87 @@ ZONES: list[tuple[str, float, float, float, float]] = [
 ]
 
 
-PAGE_LIMIT = 500  # ArcGIS server max per request
+PAGE_LIMIT = 500  # ArcGIS server hard spatial limit
+
+
+def _query_bbox(geom_str: str) -> list[dict[str, Any]]:
+    """Single ArcGIS query — returns up to 500 features."""
+    params = urllib.parse.urlencode({
+        "where": "1=1",
+        "geometry": geom_str,
+        "geometryType": "esriGeometryEnvelope",
+        "inSR": "4326",
+        "spatialRel": "esriSpatialRelIntersects",
+        "outFields": "OBJECTID,SHAPE.AREA",
+        "returnGeometry": "false",
+        "f": "json",
+    })
+    url = f"{ARCGIS_URL}?{params}"
+    req = urllib.request.Request(url, headers={"User-Agent": "plot-bot/1.0"})
+
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+    return data.get("features", [])
 
 
 def count_parcels(
     bbox: tuple[float, float, float, float],
+    depth: int = 0,
+    max_depth: int = 6,
 ) -> dict[str, Any]:
-    """Count parcels in bbox by paginating via OBJECTID.
+    """Count parcels using quadtree subdivision.
 
-    This ArcGIS server doesn't support returnCountOnly or returnIdsOnly,
-    so we paginate with 'OBJECTID > N' and outFields=OBJECTID only.
+    ArcGIS server has a hard 500-feature spatial limit with no real pagination.
+    If a bbox returns exactly 500, subdivide into 4 quadrants and recurse.
+    Deduplicates by OBJECTID.
     """
     xmin, ymin, xmax, ymax = bbox
     geom_str = f"{xmin},{ymin},{xmax},{ymax}"
 
-    total = 0
-    max_oid = 0
+    seen_oids: set[int] = set()
     areas: list[float] = []
 
     try:
-        while True:
-            where = f"OBJECTID>{max_oid}" if max_oid > 0 else "1=1"
-            params = urllib.parse.urlencode({
-                "where": where,
-                "geometry": geom_str,
-                "geometryType": "esriGeometryEnvelope",
-                "inSR": "4326",
-                "spatialRel": "esriSpatialRelIntersects",
-                "outFields": "OBJECTID,SHAPE.AREA",
-                "returnGeometry": "false",
-                "orderByFields": "OBJECTID ASC",
-                "f": "json",
-            })
-            url = f"{ARCGIS_URL}?{params}"
-            req = urllib.request.Request(url, headers={"User-Agent": "plot-bot/1.0"})
+        features = _query_bbox(geom_str)
 
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-
-            features = data.get("features", [])
-            if not features:
-                break
-
-            total += len(features)
-
-            # Collect areas for stats
+        if len(features) < PAGE_LIMIT or depth >= max_depth:
+            # This tile fits in one page — count directly
             for f in features:
                 attrs = f.get("attributes", {})
                 oid = attrs.get("OBJECTID", 0)
-                if oid > max_oid:
-                    max_oid = oid
+                seen_oids.add(oid)
                 a = attrs.get("SHAPE.AREA")
                 if a:
                     try:
                         areas.append(float(a))
                     except (ValueError, TypeError):
                         pass
+            return {"count": len(seen_oids), "areas": areas, "oids": seen_oids, "error": None}
 
-            # If fewer than PAGE_LIMIT, we got all results
-            if len(features) < PAGE_LIMIT:
-                break
+        # Too many features — subdivide into 4 quadrants
+        mx = (xmin + xmax) / 2
+        my = (ymin + ymax) / 2
+        quads = [
+            (xmin, ymin, mx, my),    # SW
+            (mx, ymin, xmax, my),    # SE
+            (xmin, my, mx, ymax),    # NW
+            (mx, my, xmax, ymax),    # NE
+        ]
 
-            time.sleep(0.3)
+        for q in quads:
+            time.sleep(0.2)
+            sub = count_parcels(q, depth + 1, max_depth)
+            # Deduplicate across quadrants (parcels on boundaries)
+            for oid in sub.get("oids", set()):
+                seen_oids.add(oid)
+            areas.extend(sub.get("areas", []))
+            if sub.get("error"):
+                return {"count": len(seen_oids), "areas": areas, "oids": seen_oids, "error": sub["error"]}
 
-        return {"count": total, "areas": areas, "error": None}
+        return {"count": len(seen_oids), "areas": areas, "oids": seen_oids, "error": None}
+
     except Exception as e:
-        return {"count": total, "areas": areas, "error": str(e)}
+        return {"count": len(seen_oids), "areas": areas, "oids": seen_oids, "error": str(e)}
 
 
 def compute_area_stats(areas: list[float]) -> dict[str, Any]:
