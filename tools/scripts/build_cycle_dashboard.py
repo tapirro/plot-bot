@@ -28,6 +28,7 @@ AGENT_PLIST_PATH = Path.home() / "Library" / "LaunchAgents" / f"{AGENT_PLIST_LAB
 SESSIONS_DIR = Path.home() / ".claude" / "projects" / "-Users-polansk-Developer-mantissa-code-plot-bot"
 CYCLE_REPORTS_DIR = REPO / "work" / "cycle_reports"
 FEEDBACK_DIR = REPO / "work" / "feedback"
+ESCALATIONS_DIR = REPO / "out"
 
 # --- Data Parsing ---
 
@@ -181,6 +182,64 @@ def parse_feedback() -> list[dict]:
                         meta[k.strip()] = v.strip().strip('"').strip("'")
         items.append({"file": f.name, "meta": meta})
     return items
+
+
+def parse_escalation_docs() -> list[dict]:
+    """Parse escalation documents from out/escalation_*.md."""
+    docs: list[dict] = []
+    if not ESCALATIONS_DIR.exists():
+        return docs
+    for f in sorted(ESCALATIONS_DIR.glob("escalation_*.md")):
+        text = f.read_text()
+        meta: dict = {}
+        body = text
+        if text.startswith("---"):
+            parts = text.split("---", 2)
+            if len(parts) >= 3:
+                for line in parts[1].strip().splitlines():
+                    if ":" in line:
+                        k, v = line.split(":", 1)
+                        meta[k.strip()] = v.strip().strip('"').strip("'")
+                body = parts[2].strip()
+        # Parse sections
+        sections: dict[str, str] = {}
+        current_sec = None
+        current_lines: list[str] = []
+        for line in body.splitlines():
+            if line.startswith("## "):
+                if current_sec:
+                    sections[current_sec] = "\n".join(current_lines).strip()
+                current_sec = line[3:].strip()
+                current_lines = []
+            elif current_sec:
+                current_lines.append(line)
+            elif not current_sec:
+                current_lines.append(line)
+        if current_sec:
+            sections[current_sec] = "\n".join(current_lines).strip()
+        # Extract decision checkboxes
+        decisions: list[dict] = []
+        for sec_name, sec_text in sections.items():
+            for dline in sec_text.splitlines():
+                dline = dline.strip()
+                if dline.startswith("- [ ] ") or dline.startswith("- [x] "):
+                    done = dline.startswith("- [x]")
+                    decisions.append({
+                        "text": dline[6:].strip(),
+                        "done": done,
+                        "section": sec_name,
+                    })
+        docs.append({
+            "file": f.name,
+            "meta": meta,
+            "title": meta.get("title", f.stem.replace("_", " ").title()),
+            "priority": meta.get("priority", "—"),
+            "status": meta.get("status", "pending"),
+            "sections": sections,
+            "decisions": decisions,
+            "body_md": body,
+        })
+    return docs
 
 
 def next_feedback_id() -> int:
@@ -548,19 +607,159 @@ def _deliverables_html(reports: list[dict]) -> str:
     return html
 
 
-def _escalations_html(reports: list[dict]) -> str:
-    """Generate consolidated escalations list."""
-    all_esc: list[tuple[int, str, str]] = []
+def _escalations_html(reports: list[dict], esc_docs: list[dict] | None = None) -> str:
+    """Generate expandable escalation cards with full context and decisions."""
+    esc_docs = esc_docs or []
+    # Collect inline escalations from cycle reports
+    inline_esc: list[tuple[int, str, str]] = []
     for r in reports:
         for e in r["escalations"]:
-            all_esc.append((r["cycle"], r["title"], e))
-    if not all_esc:
+            inline_esc.append((r["cycle"], r["title"], e))
+
+    if not esc_docs and not inline_esc:
         return '<p style="color:var(--c-muted);font-size:12px;">No escalations pending</p>'
-    html = '<div class="escalation-list"><ul style="list-style:none;padding:0;">'
-    for cycle, title, esc in reversed(all_esc):
-        html += f'<li><span class="deliverable-cycle">#{cycle}</span> {_esc(esc)}</li>\n'
-    html += "</ul></div>"
+
+    html = ""
+    # Render full escalation documents first (expandable)
+    for idx, doc in enumerate(esc_docs):
+        priority = doc["priority"]
+        status = doc["status"]
+        title = doc["title"]
+        decisions = doc["decisions"]
+        total_decisions = len(decisions)
+        resolved = sum(1 for d in decisions if d["done"])
+        pending = total_decisions - resolved
+
+        priority_cls = "esc-p0" if priority == "P0" else "esc-p1" if priority == "P1" else ""
+        status_cls = "esc-resolved" if status == "resolved" else "esc-pending"
+
+        # Render sections as HTML
+        body_html = ""
+        for sec_name, sec_text in doc["sections"].items():
+            sec_html = _md_to_html(sec_text)
+            body_html += f'<div class="esc-section"><h4>{_esc(sec_name)}</h4>{sec_html}</div>'
+
+        # Decision checklist
+        decisions_html = ""
+        if decisions:
+            decisions_html = '<div class="esc-decisions"><h4>Decisions Required</h4>'
+            for d in decisions:
+                check = "esc-check-done" if d["done"] else "esc-check-pending"
+                icon = "&#10003;" if d["done"] else ""
+                decisions_html += f'<div class="esc-decision"><span class="esc-check {check}">{icon}</span><span>{_esc(d["text"])}</span></div>'
+            decisions_html += "</div>"
+
+        html += f"""<div class="esc-card" id="esc-doc-{idx}">
+          <div class="esc-card-header" onclick="toggleEsc({idx})">
+            <span class="esc-toggle" id="esc-toggle-{idx}">&#9654;</span>
+            <span class="esc-priority {priority_cls}">{priority}</span>
+            <span class="esc-card-title">{_esc(title)}</span>
+            <span class="esc-status {status_cls}">{status}</span>
+            <span class="esc-decision-count">{pending}/{total_decisions} decisions pending</span>
+          </div>
+          <div class="esc-card-body collapsed" id="esc-body-{idx}">
+            {body_html}
+            {decisions_html}
+            <div class="esc-respond">
+              <textarea class="esc-response-text" id="esc-text-{idx}" placeholder="Your response to this escalation..."></textarea>
+              <button class="fb-submit" onclick="respondEscalation({idx}, '{_esc(doc['file'])}')">Respond</button>
+              <span class="esc-resp-status" id="esc-resp-{idx}"></span>
+            </div>
+          </div>
+        </div>\n"""
+
+    # Render inline escalations from cycle reports (not covered by docs)
+    if inline_esc:
+        html += '<div style="margin-top:12px;"><h4 style="font-size:12px;color:var(--c-muted);margin-bottom:8px;">From cycle reports</h4>'
+        for cycle, title, esc in reversed(inline_esc):
+            html += f'<div class="esc-inline"><span class="deliverable-cycle">#{cycle}</span> {_esc(esc)}</div>\n'
+        html += "</div>"
+
     return html
+
+
+def _md_to_html(md: str) -> str:
+    """Minimal markdown to HTML for escalation docs."""
+    lines = md.splitlines()
+    html_parts: list[str] = []
+    in_table = False
+    in_list = False
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            if in_list:
+                html_parts.append("</ul>")
+                in_list = False
+            if in_table:
+                html_parts.append("</table>")
+                in_table = False
+            continue
+
+        # Table rows
+        if stripped.startswith("|") and stripped.endswith("|"):
+            cells = [c.strip() for c in stripped.split("|")[1:-1]]
+            if all(set(c) <= {"-", ":", " "} for c in cells):
+                continue  # separator row
+            if not in_table:
+                html_parts.append('<table class="esc-table">')
+                in_table = True
+                html_parts.append("<tr>" + "".join(f"<th>{_esc(c)}</th>" for c in cells) + "</tr>")
+            else:
+                html_parts.append("<tr>" + "".join(f"<td>{_esc(c)}</td>" for c in cells) + "</tr>")
+            continue
+
+        if in_table:
+            html_parts.append("</table>")
+            in_table = False
+
+        # Headings
+        if stripped.startswith("### "):
+            if in_list:
+                html_parts.append("</ul>")
+                in_list = False
+            html_parts.append(f'<h5 style="margin:10px 0 4px;">{_esc(stripped[4:])}</h5>')
+            continue
+
+        # Checkboxes
+        if stripped.startswith("- [ ] ") or stripped.startswith("- [x] "):
+            if not in_list:
+                html_parts.append("<ul class='esc-checklist'>")
+                in_list = True
+            done = stripped.startswith("- [x]")
+            check_cls = "done" if done else ""
+            text = stripped[6:]
+            html_parts.append(f'<li class="{check_cls}">{_esc(text)}</li>')
+            continue
+
+        # List items
+        if stripped.startswith("- "):
+            if not in_list:
+                html_parts.append("<ul>")
+                in_list = True
+            html_parts.append(f"<li>{_esc(stripped[2:])}</li>")
+            continue
+
+        if in_list:
+            html_parts.append("</ul>")
+            in_list = False
+
+        # Blockquotes
+        if stripped.startswith("> "):
+            html_parts.append(f'<blockquote>{_esc(stripped[2:])}</blockquote>')
+            continue
+
+        # Bold text inline
+        text = _esc(stripped)
+        text = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text)
+        html_parts.append(f"<p>{text}</p>")
+
+    if in_list:
+        html_parts.append("</ul>")
+    if in_table:
+        html_parts.append("</table>")
+
+    return "\n".join(html_parts)
 
 
 def _feedback_form_html(reports: list[dict], feedback: list[dict]) -> str:
@@ -642,7 +841,7 @@ def build_html(
     cycles: list[dict], state: dict, roadmap: dict, heartbeat: dict,
     is_paused: bool = False, rate: dict | None = None, tokens: dict | None = None,
     config: dict | None = None, reports: list[dict] | None = None,
-    feedback: list[dict] | None = None,
+    feedback: list[dict] | None = None, esc_docs: list[dict] | None = None,
 ) -> str:
     """Generate the full dashboard HTML."""
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -937,6 +1136,47 @@ h1 {{ font-family:'Newsreader',Georgia,serif; font-size:28px; font-weight:600; l
 .fb-success {{ color:var(--m-elegance); font-size:12px; margin-top:8px; display:none; }}
 .fb-error {{ color:#C75D4A; font-size:12px; margin-top:8px; display:none; }}
 
+/* Escalation cards */
+.esc-card {{ background:var(--c-card); border-radius:var(--radius); margin-bottom:10px; border-left:3px solid #C75D4A; }}
+.esc-card-header {{ display:flex; align-items:center; gap:8px; padding:10px 14px; cursor:pointer; user-select:none; }}
+.esc-card-header:hover {{ background:var(--c-highlight); border-radius:0 var(--radius) var(--radius) 0; }}
+.esc-toggle {{ font-size:10px; color:var(--c-muted); transition:transform 150ms; flex-shrink:0; }}
+.esc-toggle.open {{ transform:rotate(90deg); }}
+.esc-priority {{ font-size:9px; font-weight:700; padding:2px 6px; border-radius:8px; flex-shrink:0; }}
+.esc-p0 {{ background:rgba(199,93,74,0.15); color:#C75D4A; }}
+.esc-p1 {{ background:rgba(196,162,77,0.15); color:#7A6420; }}
+.esc-card-title {{ font-size:13px; font-weight:500; }}
+.esc-status {{ font-size:10px; padding:2px 8px; border-radius:8px; margin-left:auto; flex-shrink:0; }}
+.esc-pending {{ background:rgba(199,93,74,0.10); color:#C75D4A; }}
+.esc-resolved {{ background:rgba(61,158,143,0.10); color:#3D9E8F; }}
+.esc-decision-count {{ font-size:10px; color:var(--c-muted); flex-shrink:0; }}
+.esc-card-body {{ padding:0 14px 14px; font-size:12px; line-height:1.6; }}
+.esc-card-body.collapsed {{ display:none; }}
+.esc-card-body h4 {{ font-family:'Newsreader',Georgia,serif; font-size:14px; margin:14px 0 6px; padding-top:10px; border-top:1px solid var(--c-subtle); }}
+.esc-card-body h5 {{ font-size:12px; font-weight:600; color:var(--c-muted); }}
+.esc-card-body p {{ margin:4px 0; }}
+.esc-card-body ul {{ padding-left:16px; margin:4px 0; }}
+.esc-card-body li {{ margin-bottom:3px; }}
+.esc-card-body blockquote {{ border-left:3px solid var(--c-subtle); padding:4px 10px; margin:6px 0; color:var(--c-muted); font-style:italic; }}
+.esc-table {{ width:100%; border-collapse:collapse; margin:8px 0; font-size:11px; }}
+.esc-table th {{ text-align:left; padding:4px 8px; background:var(--c-subtle); font-weight:500; font-size:10px; text-transform:uppercase; letter-spacing:0.04em; }}
+.esc-table td {{ padding:4px 8px; border-bottom:1px solid var(--c-subtle); }}
+.esc-checklist {{ list-style:none; padding-left:0; }}
+.esc-checklist li {{ padding:2px 0 2px 20px; position:relative; }}
+.esc-checklist li::before {{ content:'\\2610'; position:absolute; left:0; }}
+.esc-checklist li.done {{ color:var(--c-muted); text-decoration:line-through; }}
+.esc-checklist li.done::before {{ content:'\\2611'; color:var(--m-elegance); }}
+.esc-decisions {{ margin-top:12px; padding:10px; background:rgba(199,93,74,0.04); border-radius:var(--radius); }}
+.esc-decisions h4 {{ margin:0 0 8px !important; padding:0 !important; border:none !important; font-size:12px !important; color:#C75D4A; }}
+.esc-decision {{ display:flex; align-items:flex-start; gap:6px; padding:3px 0; }}
+.esc-check {{ width:14px; height:14px; border:1.5px solid var(--c-subtle); border-radius:3px; flex-shrink:0; margin-top:1px; display:flex; align-items:center; justify-content:center; font-size:9px; }}
+.esc-check-done {{ background:var(--m-elegance); border-color:var(--m-elegance); color:#fff; }}
+.esc-check-pending {{ border-color:#C75D4A; }}
+.esc-respond {{ margin-top:12px; padding-top:10px; border-top:1px solid var(--c-subtle); }}
+.esc-response-text {{ width:100%; min-height:60px; padding:8px 10px; border:1px solid var(--c-subtle); border-radius:var(--radius); font-family:'Inter',sans-serif; font-size:12px; background:var(--c-page); color:var(--c-ink); resize:vertical; margin-bottom:8px; }}
+.esc-resp-status {{ font-size:11px; margin-left:8px; }}
+.esc-inline {{ display:flex; align-items:center; gap:8px; padding:4px 0; font-size:12px; }}
+
 /* Tabs */
 .tab-bar {{ display:flex; gap:2px; margin-bottom:16px; border-bottom:1px solid var(--c-subtle); }}
 .tab-btn {{ padding:8px 16px; font-size:12px; font-weight:500; border:none; background:none; color:var(--c-muted); cursor:pointer; border-bottom:2px solid transparent; }}
@@ -1065,7 +1305,7 @@ h1 {{ font-family:'Newsreader',Georgia,serif; font-size:28px; font-weight:600; l
   </div>
 
   <div class="tab-panel" id="tab-escalations">
-    {_escalations_html(reports or [])}
+    {_escalations_html(reports or [], esc_docs or [])}
   </div>
 
   <div class="tab-panel" id="tab-feedback">
@@ -1226,6 +1466,52 @@ async function agentControl(action) {{
   }}
 }}
 
+// Escalation toggle
+function toggleEsc(idx) {{
+  const body = document.getElementById('esc-body-' + idx);
+  const toggle = document.getElementById('esc-toggle-' + idx);
+  if (!body || !toggle) return;
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
+}}
+
+// Respond to escalation
+async function respondEscalation(idx, file) {{
+  const text = document.getElementById('esc-text-' + idx).value.trim();
+  const statusEl = document.getElementById('esc-resp-' + idx);
+  if (!text) {{
+    statusEl.textContent = 'Please enter a response.';
+    statusEl.style.color = '#C75D4A';
+    return;
+  }}
+  statusEl.textContent = 'Saving...';
+  statusEl.style.color = 'var(--c-muted)';
+  try {{
+    const r = await fetch('/api/feedback', {{
+      method: 'POST',
+      headers: {{ 'Content-Type': 'application/json' }},
+      body: JSON.stringify({{
+        cycle_ref: '0',
+        category: 'priority',
+        text: 'RE: ' + file + '\\n\\n' + text,
+        vera: {{}},
+      }}),
+    }});
+    if (r.ok) {{
+      statusEl.textContent = 'Response saved as feedback. Bot will process in next META cycle.';
+      statusEl.style.color = 'var(--m-elegance)';
+      document.getElementById('esc-text-' + idx).value = '';
+    }} else {{
+      const d = await r.json();
+      statusEl.textContent = d.error || 'Failed';
+      statusEl.style.color = '#C75D4A';
+    }}
+  }} catch(e) {{
+    statusEl.textContent = 'Dashboard not in serve mode';
+    statusEl.style.color = '#C75D4A';
+  }}
+}}
+
 // Tab switching
 function switchTab(tab) {{
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -1320,9 +1606,10 @@ def build_once() -> None:
     config = parse_agent_config()
     reports = parse_cycle_reports()
     fb = parse_feedback()
+    esc_docs = parse_escalation_docs()
 
     html = build_html(cycles, state, roadmap, heartbeat, is_paused=paused, rate=rate,
-                      tokens=tokens, config=config, reports=reports, feedback=fb)
+                      tokens=tokens, config=config, reports=reports, feedback=fb, esc_docs=esc_docs)
     OUTPUT_FILE.write_text(html)
     print(f"Dashboard built: {OUTPUT_FILE}")
     print(f"  Cycles: {len(cycles)}, Roadmap: {roadmap['done']}/{roadmap['total']}")
@@ -1383,8 +1670,9 @@ def serve(port: int = 3000) -> None:
                 config = parse_agent_config()
                 reports = parse_cycle_reports()
                 fb = parse_feedback()
+                esc_docs = parse_escalation_docs()
                 html = build_html(cycles, state, roadmap, heartbeat, is_paused=paused, rate=rate,
-                                  tokens=tokens, config=config, reports=reports, feedback=fb)
+                                  tokens=tokens, config=config, reports=reports, feedback=fb, esc_docs=esc_docs)
                 body = html.encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
