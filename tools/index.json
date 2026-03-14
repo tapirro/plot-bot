@@ -951,6 +951,31 @@
       "basis": "cross-agent pattern from hilart-ops-bot, voic-experiment, and spec-creator harvests"
     },
     {
+      "id": "epistemology",
+      "type": "methodology",
+      "status": "active",
+      "domain": "plot-bot",
+      "tags": null,
+      "title": "Epistemological Framework — Data Trust \u0026 Confidence",
+      "path": "knowledge/epistemology.md",
+      "updated": "2026-03-15",
+      "created": "2026-03-15",
+      "sections": [
+        "core-principle",
+        "1-source-trust-hierarchy",
+        "2-data-classification",
+        "3-confidence-scoring",
+        "4-decision-confidence-gates",
+        "5-provenance-tracking",
+        "6-conflict-resolution-protocol",
+        "7-correction-protocol",
+        "8-anti-patterns-never"
+      ],
+      "edges_out": null,
+      "tier": 3,
+      "basis": "adapted from cross-agent confidence_severity model + assistant epistemology + real estate domain requirements"
+    },
+    {
       "id": "pattern-agent-tool-design",
       "type": "pattern",
       "status": "active",
@@ -1114,6 +1139,48 @@
       "basis": "applied to 2 real deals with full 6-axis analysis"
     },
     {
+      "id": "escalation-invariants",
+      "type": "escalation",
+      "status": "pending",
+      "domain": "plot-bot/land",
+      "tags": null,
+      "title": "Investment Invariants \u0026 Plot Selection Criteria — Draft for Vadim",
+      "path": "out/escalation_invariants.md",
+      "updated": "2026-03-14",
+      "created": "2026-03-14",
+      "sections": [
+        "зачем-этот-документ",
+        "часть-1-инварианты-бизнеса",
+        "часть-2-критерии-отбора-участков-scoring-model-summary",
+        "часть-3-пороги-действий",
+        "решения-checklist"
+      ],
+      "edges_out": null,
+      "tier": 3
+    },
+    {
+      "id": "escalation-ss-ge-api",
+      "type": "escalation",
+      "status": "pending",
+      "domain": "plot-bot/land",
+      "tags": null,
+      "title": "SS.ge API Access — Request for Vadim",
+      "path": "out/escalation_ss_ge_api.md",
+      "updated": "2026-03-14",
+      "created": "2026-03-14",
+      "sections": [
+        "суть",
+        "зачем-нам-api",
+        "что-запросить",
+        "контакты-ss-ge",
+        "варианты-действий",
+        "рекомендация",
+        "решение-за-вадимом"
+      ],
+      "edges_out": null,
+      "tier": 3
+    },
+    {
       "id": "script-scripts-arcgis-spatial",
       "type": "script",
       "status": "active",
@@ -1137,7 +1204,12 @@
       "path": "tools/scripts/build_cycle_dashboard.py",
       "updated": "2026-03-14",
       "created": "2026-03-14",
-      "sections": null,
+      "sections": [
+        "feedback",
+        "vera-rating",
+        "action-required",
+        "resolution"
+      ],
       "edges_out": null,
       "tier": 0
     },
@@ -1191,7 +1263,7 @@
       "tags": null,
       "title": "Take part before comma if present",
       "path": "tools/scripts/land_db.py",
-      "updated": "2026-03-14",
+      "updated": "2026-03-15",
       "created": "2026-03-14",
       "sections": null,
       "edges_out": null,
@@ -1302,6 +1374,8 @@
         "инварианты",
         "ближайшие-шаги",
         "люди",
+        "metrics",
+        "next-experiment",
         "суб-домены"
       ],
       "edges_out": null,
@@ -1320,6 +1394,8 @@
       "created": "2026-03-14",
       "sections": [
         "гипотеза",
+        "metrics",
+        "next-experiment",
         "phase-0-стратегический-фундамент",
         "phase-1-intelligence-земельный-анализ",
         "phase-2-финансовый-движок",
@@ -1391,6 +1467,45 @@
       "tier": 3
     },
     {
+      "id": "cycle-report-004",
+      "type": "cycle-report",
+      "status": "final",
+      "domain": "plot-bot",
+      "tags": null,
+      "title": "Cycle 4: Data storage — SQLite schema + ETL",
+      "path": "work/cycle_reports/CYCLE_004_data_storage.md",
+      "updated": "2026-03-14",
+      "created": "2026-03-14",
+      "sections": [
+        "hypothesis",
+        "changes",
+        "impact",
+        "next"
+      ],
+      "edges_out": null,
+      "tier": 3
+    },
+    {
+      "id": "cycle-report-005",
+      "type": "cycle-report",
+      "status": "final",
+      "domain": "plot-bot",
+      "tags": null,
+      "title": "Cycle 5: SS.ge API access + invariants/criteria escalation",
+      "path": "work/cycle_reports/CYCLE_005_escalation_invariants.md",
+      "updated": "2026-03-14",
+      "created": "2026-03-14",
+      "sections": [
+        "hypothesis",
+        "changes",
+        "impact",
+        "gemini-log",
+        "next"
+      ],
+      "edges_out": null,
+      "tier": 3
+    },
+    {
       "id": "analysis-coastal-data-001",
       "type": "analysis",
       "status": "active",
@@ -1429,6 +1544,25 @@
         "decision-required-escalation"
       ],
       "edges_out": null,
+      "tier": 3
+    },
+    {
+      "id": "feedback-NNN",
+      "type": "insight",
+      "status": "pending",
+      "tags": null,
+      "title": "TEMPLATE",
+      "path": "work/feedback/TEMPLATE.md",
+      "updated": "2026-03-14",
+      "created": "2026-03-14",
+      "sections": [
+        "feedback",
+        "vera-rating-optional",
+        "action-required",
+        "resolution"
+      ],
+      "edges_out": null,
+      "source": "dashboard|hive|in-folder",
       "tier": 3
     },
     {
@@ -1485,7 +1619,7 @@
   ],
   "_meta": {
     "updated": "2026-03-14",
-    "total": 56,
+    "total": 62,
     "generator": "ask scan"
   }
 }

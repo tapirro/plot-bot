@@ -22,8 +22,9 @@ meanings: [value, elegance, reliability, awareness]
 | Metric | Current | Target | Method |
 |--------|---------|--------|--------|
 | Roadmap tasks completed | 15/83 | 83/83 | Cycle execution |
+| Auto-backlog items resolved | 0/2 | 0 open | Quality loop |
 | Phases with MVP | 0/6 | 1/6 (Intelligence) | Phase 1 completion |
-| Auto-backlog items resolved | 0 | <5 open | Quality loop |
+| Auto-backlog items open | 2 | 0 | Quality loop |
 | Cycle velocity (tasks/mega-cycle) | ~4 | 6-8 | Process optimization |
 
 ## Next Experiment
