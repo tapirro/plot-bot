@@ -137,9 +137,15 @@ Avg impact (last 4): ${AVG_IMPACT}.
 Follow the Autonomous Loop Protocol in CLAUDE.md exactly:
 1. Read context/state.json for full state
 2. Execute Session Start sequence
-3. $([ "$CYCLE_TYPE" = "META" ] && echo "This is a META cycle: retrospective + quality check + research + plan next 4 cycles." || echo "This is a regular cycle: pick task #${CYCLE_POS} from context/cycle_plan.md and execute it.")
+3. $([ "$CYCLE_TYPE" = "META" ] && echo "This is a META cycle: retrospective + quality check + research + plan next 4 cycles. CHECK work/feedback/ for pending items FIRST." || echo "This is a regular cycle: pick task #${CYCLE_POS} from context/cycle_plan.md and execute it.")
 4. Execute Session End sequence: self-score, append to work/CYCLE_PROGRESS.md, update context/state.json, commit, log to Hive
-5. Build dashboard: python3 tools/scripts/build_cycle_dashboard.py"
+5. Build dashboard: python3 tools/scripts/build_cycle_dashboard.py
+
+MANDATORY REMINDERS:
+- Gemini offload is REQUIRED for any research >200 lines. Use gemini CLI. Your cycle report MUST include ## Gemini Log section.
+- If no Gemini was needed, write 'No Gemini offloads — [justification]' in the Gemini Log.
+- NEVER use git add -A. Stage specific files only.
+- Check work/feedback/ for pending operator feedback — process before new work if any exist."
 
   TIMESTAMP=$(date '+%Y%m%d_%H%M%S')
   CYCLE_LOG="$LOG_DIR/cycle_${TIMESTAMP}.log"
@@ -157,7 +163,7 @@ Follow the Autonomous Loop Protocol in CLAUDE.md exactly:
   cd "$REPO_DIR"
   claude -p "$CYCLE_PROMPT" \
     --dangerously-skip-permissions \
-    --output-format text \
+    --output-format json \
     --max-turns 30 \
     > "$CYCLE_LOG" 2>&1 &
   CLAUDE_PID=$!
@@ -200,14 +206,21 @@ else:
   # Refresh rate control
   rate_pct=$(check_rate_control)
 
+  # Detect max-turns exhaustion (exit 0 but actually degraded)
+  CYCLE_OUTCOME="success"
+  if [ $EXIT_CODE -eq 0 ] && grep -q "Reached max turns" "$CYCLE_LOG" 2>/dev/null; then
+    log "WARNING: Cycle #${NEXT_CYCLE} hit max-turns limit (30). Marking as degraded."
+    CYCLE_OUTCOME="max-turns"
+  fi
+
   if [ $EXIT_CODE -eq 0 ]; then
-    log "Cycle #${NEXT_CYCLE} completed successfully. Tokens: ${CYCLE_TOKENS}, Duration: ${CYCLE_DURATION}s"
-    write_heartbeat "completed" "\"exit_code\": 0"
+    log "Cycle #${NEXT_CYCLE} completed (${CYCLE_OUTCOME}). Tokens: ${CYCLE_TOKENS}, Duration: ${CYCLE_DURATION}s"
+    write_heartbeat "completed" "\"exit_code\": 0, \"outcome\": \"${CYCLE_OUTCOME}\""
     # Log to Hive with rate + tokens
-    HIVE_EXTRA="{\"rate_pct\": ${rate_pct}, \"cycle_type\": \"${CYCLE_TYPE}\", \"mode\": \"${RATE_MODE}\"}"
+    HIVE_EXTRA="{\"rate_pct\": ${rate_pct}, \"cycle_type\": \"${CYCLE_TYPE}\", \"mode\": \"${RATE_MODE}\", \"outcome\": \"${CYCLE_OUTCOME}\"}"
     bash "$REPO_DIR/tools/scripts/hive_log.sh" \
-      "cycle ${NEXT_CYCLE}: ${CYCLE_TYPE} (${RATE_MODE})" \
-      "$CYCLE_TOKENS" "$CYCLE_DURATION" "success" "$HIVE_EXTRA" \
+      "cycle ${NEXT_CYCLE}: ${CYCLE_TYPE} (${RATE_MODE}) [${CYCLE_OUTCOME}]" \
+      "$CYCLE_TOKENS" "$CYCLE_DURATION" "$CYCLE_OUTCOME" "$HIVE_EXTRA" \
       2>/dev/null || log "WARNING: Hive log failed"
     failures=0
   elif [ $EXIT_CODE -eq 137 ] || [ $EXIT_CODE -eq 143 ]; then

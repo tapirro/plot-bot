@@ -110,10 +110,11 @@ After each regular cycle, self-assess impact:
 ### Regular Cycle (cycle_position 1-4)
 
 1. Read task from `context/cycle_plan.md` (item #cycle_position)
-2. Если задача требует research >200 строк → **Gemini offload** (ОБЯЗАТЕЛЬНО)
+2. Если задача требует research >200 строк → **Gemini offload** (ОБЯЗАТЕЛЬНО, иначе = NEVER violation)
 3. Если задача требует решения Вадима → **эскалация** (ОБЯЗАТЕЛЬНО)
 4. Выполнить задачу, сохранить результат в `work/` или `out/`
 5. `./ask scan && ./ask h` — проверка compliance
+6. **Gemini usage log** — записать в cycle report секцию `## Gemini Log` (даже если 0 вызовов — записать `No Gemini offloads this cycle` + justification)
 
 ### Session End (MANDATORY SEQUENCE)
 
@@ -153,6 +154,7 @@ Required sections (enforced by `./ask lint`):
 
 Optional:
 - `## Escalations` — items requiring Vadim's decision (list format)
+- `## Gemini Log` — Gemini offloads used (model, purpose, tokens). If none: `No Gemini offloads — [justification]`
 
 ### Progress Log Format (`work/CYCLE_PROGRESS.md`)
 
@@ -433,9 +435,10 @@ All reports, analysis docs → `devreports/` (gitignored). Keep root clean.
 - **NEVER** запускать META цикл с непрочитанным feedback в `work/feedback/`
 
 ### Resource Management
-- **NEVER** читать >200 строк без Gemini offload (CLAUDE.md §Gemini Per-Step Mapping)
+- **NEVER** читать >200 строк без Gemini offload (CLAUDE.md §Gemini Per-Step Mapping). **Enforcement:** cycle report MUST include `## Gemini Log` section — reviewer checks compliance
 - **NEVER** запускать скрапер без rate limiting (≥1s между запросами)
 - **NEVER** хранить API ключи, пароли, или PII в tracked файлах
+- **NEVER** завершить цикл без `## Gemini Log` в cycle report (даже если 0 вызовов — записать justification)
 
 ## On-Demand Knowledge
 

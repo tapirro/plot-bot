@@ -17,6 +17,25 @@ meanings: [value, elegance, reliability, awareness]
 
 Полноценный AI-driven девелоперский бизнес требует 6 фундаментальных систем, развёрнутых последовательно. Каждая фаза создаёт предпосылки для следующей. MVP — фаза 1 (Intelligence) на одном кластере.
 
+## Metrics
+
+| Metric | Current | Target | Method |
+|--------|---------|--------|--------|
+| Roadmap tasks completed | 15/83 | 83/83 | Cycle execution |
+| Phases with MVP | 0/6 | 1/6 (Intelligence) | Phase 1 completion |
+| Auto-backlog items resolved | 0 | <5 open | Quality loop |
+| Cycle velocity (tasks/mega-cycle) | ~4 | 6-8 | Process optimization |
+
+## Next Experiment
+
+**Hypothesis:** Completing Phase 1 Intelligence MVP (land scoring + cadastral DB + market data) within 3 mega-cycles will produce an actionable shortlist of ≥10 undervalued plots.
+
+**Method:** Execute roadmap phases 0.2→1.1→1.2→1.3 sequentially, each as 1-2 cycles.
+
+**Success criteria:** SQLite DB with ≥500 scored parcels, ≥10 flagged as high-potential, validated by Vadim.
+
+**Timeline:** By mega-cycle 4 (cycle 20).
+
 ---
 
 ## Phase 0: Стратегический фундамент

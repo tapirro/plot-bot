@@ -26,6 +26,8 @@ OUTPUT_FILE = REPO / "devreports" / "cycle_dashboard.html"
 AGENT_PLIST_LABEL = "com.mantissa.plot-bot"
 AGENT_PLIST_PATH = Path.home() / "Library" / "LaunchAgents" / f"{AGENT_PLIST_LABEL}.plist"
 SESSIONS_DIR = Path.home() / ".claude" / "projects" / "-Users-polansk-Developer-mantissa-code-plot-bot"
+CYCLE_REPORTS_DIR = REPO / "work" / "cycle_reports"
+FEEDBACK_DIR = REPO / "work" / "feedback"
 
 # --- Data Parsing ---
 
@@ -106,6 +108,92 @@ def parse_session_tokens() -> dict:
         "current_output": current_output,
         "current_total": current_input + current_output,
     }
+
+
+def parse_cycle_reports() -> list[dict]:
+    """Parse all cycle reports from work/cycle_reports/."""
+    reports: list[dict] = []
+    if not CYCLE_REPORTS_DIR.exists():
+        return reports
+    for f in sorted(CYCLE_REPORTS_DIR.glob("CYCLE_*.md")):
+        text = f.read_text()
+        meta: dict = {}
+        body_sections: dict[str, str] = {}
+        # Parse YAML frontmatter
+        if text.startswith("---"):
+            parts = text.split("---", 2)
+            if len(parts) >= 3:
+                for line in parts[1].strip().splitlines():
+                    if ":" in line:
+                        k, v = line.split(":", 1)
+                        meta[k.strip()] = v.strip().strip('"').strip("'")
+                text = parts[2]
+        # Parse markdown sections
+        current_section = None
+        current_lines: list[str] = []
+        for line in text.splitlines():
+            if line.startswith("## "):
+                if current_section:
+                    body_sections[current_section] = "\n".join(current_lines).strip()
+                current_section = line[3:].strip()
+                current_lines = []
+            elif current_section:
+                current_lines.append(line)
+        if current_section:
+            body_sections[current_section] = "\n".join(current_lines).strip()
+
+        # Extract escalations as list
+        escalations: list[str] = []
+        esc_text = body_sections.get("Escalations", "")
+        for eline in esc_text.splitlines():
+            eline = eline.strip()
+            if eline.startswith("- "):
+                escalations.append(eline[2:].strip())
+
+        reports.append({
+            "file": f.name,
+            "meta": meta,
+            "sections": body_sections,
+            "escalations": escalations,
+            "cycle": int(meta.get("cycle", 0)),
+            "title": meta.get("title", f.stem),
+            "impact": meta.get("impact", "—"),
+            "type": meta.get("cycle_type", "?"),
+            "north_stars": [s.strip() for s in meta.get("north_stars", "").strip("[]").split(",") if s.strip()],
+        })
+    return reports
+
+
+def parse_feedback() -> list[dict]:
+    """Parse feedback files from work/feedback/."""
+    items: list[dict] = []
+    if not FEEDBACK_DIR.exists():
+        return items
+    for f in sorted(FEEDBACK_DIR.glob("FEEDBACK_*.md")):
+        text = f.read_text()
+        meta: dict = {}
+        if text.startswith("---"):
+            parts = text.split("---", 2)
+            if len(parts) >= 3:
+                for line in parts[1].strip().splitlines():
+                    if ":" in line:
+                        k, v = line.split(":", 1)
+                        meta[k.strip()] = v.strip().strip('"').strip("'")
+        items.append({"file": f.name, "meta": meta})
+    return items
+
+
+def next_feedback_id() -> int:
+    """Get next feedback file number."""
+    if not FEEDBACK_DIR.exists():
+        return 1
+    existing = list(FEEDBACK_DIR.glob("FEEDBACK_*.md"))
+    nums = []
+    for f in existing:
+        m = re.search(r"FEEDBACK_(\d+)", f.stem)
+        if m:
+            nums.append(int(m.group(1)))
+    return max(nums) + 1 if nums else 1
 
 
 def parse_progress() -> list[dict]:
@@ -421,10 +509,140 @@ def _agent_control_html(heartbeat_status: str) -> str:
     )
 
 
+def _deliverables_html(reports: list[dict]) -> str:
+    """Generate deliverables list from cycle reports."""
+    if not reports:
+        return '<p style="color:var(--c-muted);font-size:12px;">No cycle reports yet</p>'
+    html = ""
+    for r in reversed(reports):
+        stars_html = " ".join(
+            f'<span class="m-badge m-badge-{"value" if s == "V" else "elegance" if s == "E" else "reliability" if s == "R" else "awareness"}">{s}</span>'
+            for s in r["north_stars"]
+        )
+        esc_count = len(r["escalations"])
+        esc_tag = f'<span class="escalation-tag">{esc_count} escalation{"s" if esc_count != 1 else ""}</span>' if esc_count > 0 else ""
+        # Changes section
+        changes = r["sections"].get("Changes", "")
+        changes_html = ""
+        if changes:
+            items = [l.strip()[2:] for l in changes.splitlines() if l.strip().startswith("- ")]
+            if items:
+                changes_items = "".join(f"<li>{_esc(i)}</li>" for i in items[:8])
+                changes_html = f"<ul>{changes_items}</ul>"
+                if len(items) > 8:
+                    changes_html += f'<p style="font-size:11px;color:var(--c-muted);">+{len(items)-8} more</p>'
+        # Impact
+        impact_val = r["impact"]
+        type_cls = {"META": "type-meta", "RESEARCH": "type-research", "ANALYSIS": "type-analysis",
+                     "BUILD": "type-build", "ESCALATION": "type-escalation", "BOLD": "type-bold"}.get(r["type"], "")
+        html += f"""<div class="deliverable">
+          <div class="deliverable-header">
+            <span class="deliverable-cycle">#{r["cycle"]}</span>
+            <span class="type-pill {type_cls}">{r["type"]}</span>
+            <span class="deliverable-title">{_esc(r["title"])}</span>
+            {stars_html}{esc_tag}
+            <span style="margin-left:auto;font-size:11px;color:var(--c-muted);">Impact: <strong>{impact_val}</strong></span>
+          </div>
+          <div class="deliverable-body">{changes_html}</div>
+        </div>\n"""
+    return html
+
+
+def _escalations_html(reports: list[dict]) -> str:
+    """Generate consolidated escalations list."""
+    all_esc: list[tuple[int, str, str]] = []
+    for r in reports:
+        for e in r["escalations"]:
+            all_esc.append((r["cycle"], r["title"], e))
+    if not all_esc:
+        return '<p style="color:var(--c-muted);font-size:12px;">No escalations pending</p>'
+    html = '<div class="escalation-list"><ul style="list-style:none;padding:0;">'
+    for cycle, title, esc in reversed(all_esc):
+        html += f'<li><span class="deliverable-cycle">#{cycle}</span> {_esc(esc)}</li>\n'
+    html += "</ul></div>"
+    return html
+
+
+def _feedback_form_html(reports: list[dict], feedback: list[dict]) -> str:
+    """Generate feedback form."""
+    # Cycle selector options
+    cycle_opts = "".join(
+        f'<option value="{r["cycle"]}">Cycle #{r["cycle"]}: {_esc(r["title"])}</option>'
+        for r in reversed(reports)
+    )
+    if not cycle_opts:
+        cycle_opts = '<option value="0">No cycles yet</option>'
+
+    pending_count = sum(1 for fb in feedback if fb.get("meta", {}).get("status") == "pending")
+    pending_note = f'<p style="font-size:11px;color:var(--m-value);margin-bottom:12px;">{pending_count} pending feedback item{"s" if pending_count != 1 else ""}</p>' if pending_count > 0 else ""
+
+    return f"""
+    {pending_note}
+    <div class="feedback-form">
+      <h3>Operator Feedback</h3>
+      <form id="feedback-form" onsubmit="submitFeedback(event)">
+        <div class="fb-row">
+          <div class="fb-field">
+            <label>Cycle</label>
+            <select name="cycle_ref" id="fb-cycle">{cycle_opts}</select>
+          </div>
+          <div class="fb-field">
+            <label>Category</label>
+            <select name="category" id="fb-category">
+              <option value="quality">Quality</option>
+              <option value="methodology">Methodology</option>
+              <option value="priority">Priority</option>
+              <option value="domain-knowledge">Domain Knowledge</option>
+            </select>
+          </div>
+        </div>
+        <div class="fb-row">
+          <div class="fb-field" style="flex:1;">
+            <label>VERA Rating (optional)</label>
+            <div class="fb-vera">
+              <div class="fb-vera-item">
+                <label>V</label>
+                <select name="vera_v" id="fb-v"><option value="">—</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option></select>
+              </div>
+              <div class="fb-vera-item">
+                <label>E</label>
+                <select name="vera_e" id="fb-e"><option value="">—</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option></select>
+              </div>
+              <div class="fb-vera-item">
+                <label>R</label>
+                <select name="vera_r" id="fb-r"><option value="">—</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option></select>
+              </div>
+              <div class="fb-vera-item">
+                <label>A</label>
+                <select name="vera_a" id="fb-a"><option value="">—</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option></select>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="fb-row">
+          <div class="fb-field" style="flex:1;">
+            <label>Feedback (freeform)</label>
+            <textarea name="text" id="fb-text" placeholder="What worked well? What needs improvement? Specific corrections or new priorities..."></textarea>
+          </div>
+        </div>
+        <button type="submit" class="fb-submit" id="fb-submit">Submit Feedback</button>
+        <div class="fb-success" id="fb-success">Feedback saved. Bot will process it in the next META cycle.</div>
+        <div class="fb-error" id="fb-error"></div>
+      </form>
+    </div>
+    """
+
+
+def _esc(s: str) -> str:
+    """Escape HTML."""
+    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
 def build_html(
     cycles: list[dict], state: dict, roadmap: dict, heartbeat: dict,
     is_paused: bool = False, rate: dict | None = None, tokens: dict | None = None,
-    config: dict | None = None,
+    config: dict | None = None, reports: list[dict] | None = None,
+    feedback: list[dict] | None = None,
 ) -> str:
     """Generate the full dashboard HTML."""
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -688,6 +906,44 @@ h1 {{ font-family:'Newsreader',Georgia,serif; font-size:28px; font-weight:600; l
 .backlog-filter {{ display:flex; gap:6px; margin-bottom:12px; }}
 .backlog-filter-btn {{ font-size:10px; padding:3px 10px; border-radius:10px; border:1px solid var(--c-subtle); background:none; color:var(--c-muted); cursor:pointer; }}
 .backlog-filter-btn.active {{ background:var(--c-ink); color:var(--c-page); border-color:var(--c-ink); }}
+
+/* Deliverables */
+.deliverable {{ background:var(--c-card); border-radius:var(--radius); padding:14px 16px; margin-bottom:10px; }}
+.deliverable-header {{ display:flex; align-items:center; gap:10px; margin-bottom:8px; }}
+.deliverable-cycle {{ font-family:'JetBrains Mono',monospace; font-size:11px; background:var(--c-subtle); padding:2px 8px; border-radius:10px; }}
+.deliverable-title {{ font-weight:500; font-size:13px; }}
+.deliverable-body {{ font-size:12px; color:var(--c-muted); line-height:1.5; }}
+.deliverable-body ul {{ padding-left:18px; margin:4px 0; }}
+.deliverable-body li {{ margin-bottom:3px; }}
+.escalation-list {{ margin-top:8px; padding:8px 12px; background:rgba(199,93,74,0.06); border-radius:var(--radius); border-left:3px solid #C75D4A; }}
+.escalation-list li {{ color:var(--c-ink); font-size:12px; margin-bottom:4px; }}
+.escalation-tag {{ display:inline-block; font-size:9px; font-weight:600; padding:2px 6px; border-radius:8px; background:rgba(199,93,74,0.15); color:#C75D4A; margin-left:6px; }}
+
+/* Feedback form */
+.feedback-form {{ background:var(--c-card); border-radius:var(--radius); padding:16px 20px; }}
+.feedback-form h3 {{ font-family:'Newsreader',Georgia,serif; font-size:15px; margin-bottom:12px; }}
+.fb-row {{ display:flex; gap:12px; margin-bottom:10px; flex-wrap:wrap; }}
+.fb-field {{ display:flex; flex-direction:column; gap:4px; }}
+.fb-field label {{ font-size:10px; color:var(--c-muted); text-transform:uppercase; letter-spacing:0.06em; }}
+.fb-field select, .fb-field input {{ font-family:'Inter',sans-serif; font-size:12px; padding:6px 10px; border:1px solid var(--c-subtle); border-radius:var(--radius); background:var(--c-page); color:var(--c-ink); }}
+.fb-field textarea {{ font-family:'Inter',sans-serif; font-size:12px; padding:8px 10px; border:1px solid var(--c-subtle); border-radius:var(--radius); background:var(--c-page); color:var(--c-ink); resize:vertical; min-height:80px; width:100%; }}
+.fb-vera {{ display:flex; gap:10px; }}
+.fb-vera-item {{ text-align:center; }}
+.fb-vera-item label {{ font-size:10px; }}
+.fb-vera-item select {{ width:52px; text-align:center; }}
+.fb-submit {{ display:inline-flex; align-items:center; gap:6px; padding:8px 20px; border-radius:var(--radius); border:1px solid var(--m-elegance); background:rgba(61,158,143,0.08); color:var(--m-elegance-text); font-size:12px; font-weight:500; cursor:pointer; }}
+.fb-submit:hover {{ background:rgba(61,158,143,0.15); }}
+.fb-submit:disabled {{ opacity:0.5; cursor:not-allowed; }}
+.fb-success {{ color:var(--m-elegance); font-size:12px; margin-top:8px; display:none; }}
+.fb-error {{ color:#C75D4A; font-size:12px; margin-top:8px; display:none; }}
+
+/* Tabs */
+.tab-bar {{ display:flex; gap:2px; margin-bottom:16px; border-bottom:1px solid var(--c-subtle); }}
+.tab-btn {{ padding:8px 16px; font-size:12px; font-weight:500; border:none; background:none; color:var(--c-muted); cursor:pointer; border-bottom:2px solid transparent; }}
+.tab-btn:hover {{ color:var(--c-ink); }}
+.tab-btn.active {{ color:var(--c-ink); border-bottom-color:var(--m-elegance); }}
+.tab-panel {{ display:none; }}
+.tab-panel.active {{ display:block; }}
 </style>
 </head>
 <body>
@@ -793,6 +1049,28 @@ h1 {{ font-family:'Newsreader',Georgia,serif; font-size:28px; font-weight:600; l
     <button class="backlog-filter-btn" onclick="filterBacklog('done')">Done</button>
   </div>
   {backlog_html if backlog_html else '<p style="color:var(--c-muted);font-size:12px;">No backlog data</p>'}
+</div>
+
+<!-- Deliverables & Feedback -->
+<div class="card" style="margin-bottom:16px;">
+  <div class="card-title">Deliverables & Feedback</div>
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab('deliverables')">Deliverables</button>
+    <button class="tab-btn" onclick="switchTab('escalations')">Escalations</button>
+    <button class="tab-btn" onclick="switchTab('feedback')">Give Feedback</button>
+  </div>
+
+  <div class="tab-panel active" id="tab-deliverables">
+    {_deliverables_html(reports or [])}
+  </div>
+
+  <div class="tab-panel" id="tab-escalations">
+    {_escalations_html(reports or [])}
+  </div>
+
+  <div class="tab-panel" id="tab-feedback">
+    {_feedback_form_html(reports or [], feedback or [])}
+  </div>
 </div>
 
 <!-- Cycle Log -->
@@ -948,6 +1226,73 @@ async function agentControl(action) {{
   }}
 }}
 
+// Tab switching
+function switchTab(tab) {{
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  event.target.classList.add('active');
+  const panel = document.getElementById('tab-' + tab);
+  if (panel) panel.classList.add('active');
+}}
+
+// Feedback form submission
+async function submitFeedback(e) {{
+  e.preventDefault();
+  const btn = document.getElementById('fb-submit');
+  const successEl = document.getElementById('fb-success');
+  const errorEl = document.getElementById('fb-error');
+  successEl.style.display = 'none';
+  errorEl.style.display = 'none';
+  btn.disabled = true;
+  btn.textContent = 'Saving...';
+
+  const data = {{
+    cycle_ref: document.getElementById('fb-cycle').value,
+    category: document.getElementById('fb-category').value,
+    text: document.getElementById('fb-text').value,
+    vera: {{
+      V: document.getElementById('fb-v').value || null,
+      E: document.getElementById('fb-e').value || null,
+      R: document.getElementById('fb-r').value || null,
+      A: document.getElementById('fb-a').value || null,
+    }},
+  }};
+
+  if (!data.text.trim()) {{
+    errorEl.textContent = 'Please enter feedback text.';
+    errorEl.style.display = 'block';
+    btn.disabled = false;
+    btn.textContent = 'Submit Feedback';
+    return;
+  }}
+
+  try {{
+    const r = await fetch('/api/feedback', {{
+      method: 'POST',
+      headers: {{ 'Content-Type': 'application/json' }},
+      body: JSON.stringify(data),
+    }});
+    const d = await r.json();
+    if (r.ok) {{
+      successEl.textContent = 'Feedback saved as ' + (d.file || 'FEEDBACK_XXX.md') + '. Bot will process it in the next META cycle.';
+      successEl.style.display = 'block';
+      document.getElementById('fb-text').value = '';
+      document.getElementById('fb-v').value = '';
+      document.getElementById('fb-e').value = '';
+      document.getElementById('fb-r').value = '';
+      document.getElementById('fb-a').value = '';
+    }} else {{
+      errorEl.textContent = d.error || 'Failed to save feedback';
+      errorEl.style.display = 'block';
+    }}
+  }} catch(err) {{
+    errorEl.textContent = 'Dashboard not in serve mode — feedback unavailable';
+    errorEl.style.display = 'block';
+  }}
+  btn.disabled = false;
+  btn.textContent = 'Submit Feedback';
+}}
+
 function showError(msg) {{
   const banner = document.querySelector('.live-banner');
   if (banner) {{
@@ -973,8 +1318,11 @@ def build_once() -> None:
     rate = parse_rate_control()
     tokens = parse_session_tokens()
     config = parse_agent_config()
+    reports = parse_cycle_reports()
+    fb = parse_feedback()
 
-    html = build_html(cycles, state, roadmap, heartbeat, is_paused=paused, rate=rate, tokens=tokens, config=config)
+    html = build_html(cycles, state, roadmap, heartbeat, is_paused=paused, rate=rate,
+                      tokens=tokens, config=config, reports=reports, feedback=fb)
     OUTPUT_FILE.write_text(html)
     print(f"Dashboard built: {OUTPUT_FILE}")
     print(f"  Cycles: {len(cycles)}, Roadmap: {roadmap['done']}/{roadmap['total']}")
@@ -1017,6 +1365,12 @@ def serve(port: int = 3000) -> None:
                 self._json_response(200, data)
                 return
 
+            if path == "/api/deliverables":
+                reports = parse_cycle_reports()
+                fb = parse_feedback()
+                self._json_response(200, {"reports": reports, "feedback": fb})
+                return
+
             if path == "/" or path == "/dashboard":
                 # Rebuild on every request for live data
                 cycles = parse_progress()
@@ -1027,7 +1381,10 @@ def serve(port: int = 3000) -> None:
                 rate = parse_rate_control()
                 tokens = parse_session_tokens()
                 config = parse_agent_config()
-                html = build_html(cycles, state, roadmap, heartbeat, is_paused=paused, rate=rate, tokens=tokens, config=config)
+                reports = parse_cycle_reports()
+                fb = parse_feedback()
+                html = build_html(cycles, state, roadmap, heartbeat, is_paused=paused, rate=rate,
+                                  tokens=tokens, config=config, reports=reports, feedback=fb)
                 body = html.encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -1097,6 +1454,70 @@ def serve(port: int = 3000) -> None:
                     return
                 self._json_response(200, {"ok": True, "paused": False,
                     "message": "Agent service loaded and started."})
+                return
+
+            if path == "/api/feedback":
+                content_length = int(self.headers.get("Content-Length", 0))
+                body = self.rfile.read(content_length).decode() if content_length > 0 else "{}"
+                try:
+                    data = json.loads(body)
+                except json.JSONDecodeError:
+                    self._json_response(400, {"error": "Invalid JSON"})
+                    return
+
+                text = data.get("text", "").strip()
+                if not text:
+                    self._json_response(400, {"error": "Feedback text is required"})
+                    return
+
+                FEEDBACK_DIR.mkdir(parents=True, exist_ok=True)
+                fb_id = next_feedback_id()
+                cycle_ref = data.get("cycle_ref", "0")
+                category = data.get("category", "quality")
+                vera = data.get("vera", {})
+                today = datetime.now().strftime("%Y-%m-%d")
+
+                vera_table = ""
+                for axis in ["V", "E", "R", "A"]:
+                    v = vera.get(axis, "")
+                    if v:
+                        axis_name = {"V": "Value", "E": "Elegance", "R": "Reliability", "A": "Awareness"}[axis]
+                        vera_table += f"| {axis} ({axis_name}) | {v} | |\n"
+
+                content = f"""---
+id: feedback-{fb_id:03d}
+type: insight
+status: pending
+category: {category}
+source: dashboard
+created: {today}
+cycle_ref: cycle-report-{cycle_ref:0>3}
+---
+
+## Feedback
+
+{text}
+"""
+                if vera_table:
+                    content += f"""
+## VERA Rating
+
+| Axis | Score (1-5) | Comment |
+|------|-------------|---------|
+{vera_table}
+"""
+                content += """
+## Action Required
+
+- [ ] Process this feedback
+
+## Resolution
+
+Status: pending
+"""
+                fname = f"FEEDBACK_{fb_id:03d}.md"
+                (FEEDBACK_DIR / fname).write_text(content)
+                self._json_response(200, {"ok": True, "file": fname, "id": fb_id})
                 return
 
             if path == "/api/agent/stop":
