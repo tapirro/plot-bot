@@ -19,7 +19,28 @@ MAX_CONSECUTIVE_FAILURES=5
 KEYCHAIN_PASSWORD="${PLOT_BOT_KEYCHAIN_PW:-}"
 RATE_LIMIT_PAUSE=3600                            # 1 hour if rate-limited
 
+HEARTBEAT_FILE="${REPO_DIR}/context/heartbeat.json"
+
 mkdir -p "$LOG_DIR" "${REPO_DIR}/context"
+
+write_heartbeat() {
+  # Args: status, [extra fields as JSON fragment]
+  local status="$1"
+  local extra="${2:-}"
+  cat > "$HEARTBEAT_FILE" << HBJSON
+{
+  "status": "${status}",
+  "cycle": ${NEXT_CYCLE:-0},
+  "cycle_position": ${CYCLE_POS:-0},
+  "cycle_type": "${CYCLE_TYPE:-unknown}",
+  "mode": "${RATE_MODE:-FULL}",
+  "rate_pct": ${rate_pct:-0},
+  "timestamp": "$(date -u '+%Y-%m-%dT%H:%M:%SZ')",
+  "pid": ${CLAUDE_PID:-0}${extra:+,
+  $extra}
+}
+HBJSON
+}
 
 log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_DIR/runner.log"
@@ -114,6 +135,10 @@ Follow the Autonomous Loop Protocol in CLAUDE.md exactly:
 
   log "Starting cycle → $CYCLE_LOG"
 
+  # Write heartbeat: running
+  CLAUDE_PID=0
+  write_heartbeat "running"
+
   # Run one autonomous cycle (with 30-min watchdog)
   set +e
   cd "$REPO_DIR"
@@ -123,6 +148,9 @@ Follow the Autonomous Loop Protocol in CLAUDE.md exactly:
     --max-turns 30 \
     > "$CYCLE_LOG" 2>&1 &
   CLAUDE_PID=$!
+
+  # Update heartbeat with actual PID
+  write_heartbeat "running"
 
   # Watchdog: kill if running longer than 30 minutes
   ( sleep 1800 && kill "$CLAUDE_PID" 2>/dev/null ) &
@@ -136,12 +164,15 @@ Follow the Autonomous Loop Protocol in CLAUDE.md exactly:
 
   if [ $EXIT_CODE -eq 0 ]; then
     log "Cycle #${NEXT_CYCLE} completed successfully."
+    write_heartbeat "completed" "\"exit_code\": 0"
     failures=0
   elif [ $EXIT_CODE -eq 137 ] || [ $EXIT_CODE -eq 143 ]; then
     log "Cycle #${NEXT_CYCLE} timed out (30 min). Will retry."
+    write_heartbeat "timeout" "\"exit_code\": $EXIT_CODE"
     failures=$((failures + 1))
   else
     log "Cycle #${NEXT_CYCLE} failed (exit=$EXIT_CODE). Failure $((failures + 1))/${MAX_CONSECUTIVE_FAILURES}."
+    write_heartbeat "failed" "\"exit_code\": $EXIT_CODE, \"failures\": $((failures + 1))"
     failures=$((failures + 1))
   fi
 
@@ -163,5 +194,6 @@ Follow the Autonomous Loop Protocol in CLAUDE.md exactly:
   ls -1t "$LOG_DIR"/cycle_*.log 2>/dev/null | tail -n +51 | xargs rm -f 2>/dev/null || true
 
   log "Cooldown ${COOLDOWN_SECONDS}s..."
+  write_heartbeat "cooldown" "\"cooldown_seconds\": $COOLDOWN_SECONDS"
   sleep "$COOLDOWN_SECONDS"
 done
