@@ -8,6 +8,8 @@ Usage:
     python3 tools/scripts/build_cycle_dashboard.py
 """
 
+from __future__ import annotations
+
 import glob
 import json
 import re
@@ -335,7 +337,7 @@ def _scan_cycle_reports_for_completions() -> set[str]:
     - References to created artifacts matching roadmap task descriptions
     - Sections like '## Changes' listing new files
     """
-    completions: set[str] = []
+    completions: list[str] = []
     reports_dir = REPO / "work" / "cycle_reports"
     if not reports_dir.exists():
         return set()
