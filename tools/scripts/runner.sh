@@ -71,20 +71,30 @@ while true; do
 
   log "Starting cycle → $CYCLE_LOG"
 
-  # Run one autonomous cycle
+  # Run one autonomous cycle (with 30-min watchdog)
   set +e
   cd "$REPO_DIR"
-  timeout 1800 claude -p "$CYCLE_PROMPT" \
+  claude -p "$CYCLE_PROMPT" \
     --dangerously-skip-permissions \
     --output-format text \
-    > "$CYCLE_LOG" 2>&1
+    --max-turns 30 \
+    > "$CYCLE_LOG" 2>&1 &
+  CLAUDE_PID=$!
+
+  # Watchdog: kill if running longer than 30 minutes
+  ( sleep 1800 && kill "$CLAUDE_PID" 2>/dev/null ) &
+  WATCHDOG_PID=$!
+
+  wait "$CLAUDE_PID" 2>/dev/null
   EXIT_CODE=$?
+  kill "$WATCHDOG_PID" 2>/dev/null || true
+  wait "$WATCHDOG_PID" 2>/dev/null || true
   set -e
 
   if [ $EXIT_CODE -eq 0 ]; then
     log "Cycle completed successfully."
     failures=0
-  elif [ $EXIT_CODE -eq 124 ]; then
+  elif [ $EXIT_CODE -eq 137 ] || [ $EXIT_CODE -eq 143 ]; then
     log "Cycle timed out (30 min). Will retry."
     failures=$((failures + 1))
   else
