@@ -1,3 +1,12 @@
+---
+id: guide-cycle-progress
+type: guide
+title: "Plot Bot — Cycle Progress"
+domain: plot-bot
+status: active
+created: 2026-03-14
+---
+
 # Plot Bot — Cycle Progress
 
 ## Dashboard
