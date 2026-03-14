@@ -175,6 +175,7 @@ def parse_feedback() -> list[dict]:
     for f in sorted(FEEDBACK_DIR.glob("FEEDBACK_*.md")):
         text = f.read_text()
         meta: dict = {}
+        body = text
         if text.startswith("---"):
             parts = text.split("---", 2)
             if len(parts) >= 3:
@@ -182,7 +183,37 @@ def parse_feedback() -> list[dict]:
                     if ":" in line:
                         k, v = line.split(":", 1)
                         meta[k.strip()] = v.strip().strip('"').strip("'")
-        items.append({"file": f.name, "meta": meta})
+                body = parts[2].strip()
+        # Detect escalation response and extract per-question answers
+        esc_ref = None
+        responses: list[dict] = []
+        m = re.search(r"ESCALATION RESPONSE:\s*(\S+)", body)
+        if m:
+            esc_ref = m.group(1)
+            # Parse Q/Decision/Comment triples
+            current_q = None
+            current_decision = None
+            current_comment = None
+            for line in body.splitlines():
+                qm = re.match(r"\*\*Q(\d+):\*\*\s*(.*)", line)
+                dm = re.match(r"\*\*Decision:\*\*\s*(.*)", line)
+                cm = re.match(r"\*\*Comment:\*\*\s*(.*)", line)
+                if qm:
+                    if current_q is not None and current_decision is not None:
+                        responses.append({"q": current_q, "text": current_q_text,
+                                          "decision": current_decision, "comment": current_comment or ""})
+                    current_q = int(qm.group(1))
+                    current_q_text = qm.group(2).strip()
+                    current_decision = None
+                    current_comment = None
+                elif dm:
+                    current_decision = dm.group(1).strip()
+                elif cm:
+                    current_comment = cm.group(1).strip()
+            if current_q is not None and current_decision is not None:
+                responses.append({"q": current_q, "text": current_q_text,
+                                  "decision": current_decision, "comment": current_comment or ""})
+        items.append({"file": f.name, "meta": meta, "esc_ref": esc_ref, "responses": responses})
     return items
 
 
@@ -667,9 +698,18 @@ def _deliverables_html(reports: list[dict]) -> str:
     return html
 
 
-def _escalations_html(reports: list[dict], esc_docs: list[dict] | None = None) -> str:
+def _escalations_html(reports: list[dict], esc_docs: list[dict] | None = None,
+                      feedback: list[dict] | None = None) -> str:
     """Generate expandable escalation cards with full context and decisions."""
     esc_docs = esc_docs or []
+    feedback = feedback or []
+    # Build map: escalation filename → feedback responses
+    esc_responses: dict[str, list[dict]] = {}
+    for fb in feedback:
+        ref = fb.get("esc_ref")
+        if ref and fb.get("responses"):
+            esc_responses[ref] = fb["responses"]
+
     # Collect inline escalations from cycle reports
     inline_esc: list[tuple[int, str, str]] = []
     for r in reports:
@@ -683,15 +723,25 @@ def _escalations_html(reports: list[dict], esc_docs: list[dict] | None = None) -
     # Render full escalation documents first (expandable)
     for idx, doc in enumerate(esc_docs):
         priority = doc["priority"]
-        status = doc["status"]
         title = doc["title"]
         decisions = doc["decisions"]
         total_decisions = len(decisions)
+
+        # Check if this escalation has been answered via feedback
+        responses = esc_responses.get(doc["file"], [])
+        is_answered = len(responses) > 0
+
+        if is_answered:
+            status = "responded"
+            status_cls = "esc-responded"
+        else:
+            status = doc["status"]
+            status_cls = "esc-resolved" if status == "resolved" else "esc-pending"
+
         resolved = sum(1 for d in decisions if d["done"])
         pending = total_decisions - resolved
 
         priority_cls = "esc-p0" if priority == "P0" else "esc-p1" if priority == "P1" else ""
-        status_cls = "esc-resolved" if status == "resolved" else "esc-pending"
 
         # Render sections as HTML
         body_html = ""
@@ -699,40 +749,72 @@ def _escalations_html(reports: list[dict], esc_docs: list[dict] | None = None) -
             sec_html = _md_to_html(sec_text)
             body_html += f'<div class="esc-section"><h4>{_esc(sec_name)}</h4>{sec_html}</div>'
 
-        # Interactive decision items with approve/reject/auto + comment
-        decisions_html = ""
-        if decisions:
-            decisions_html = '<div class="esc-decisions"><h4>Decisions Required</h4>'
-            for di, d in enumerate(decisions):
-                d_id = f"d-{idx}-{di}"
-                decisions_html += f"""<div class="esc-decision" id="{d_id}">
-                  <div class="esc-d-text">{_esc(d["text"])}</div>
-                  <div class="esc-d-controls">
-                    <button class="esc-d-btn" onclick="setDecision('{d_id}','yes',this)" title="Approve">Да</button>
-                    <button class="esc-d-btn" onclick="setDecision('{d_id}','no',this)" title="Reject">Нет</button>
-                    <button class="esc-d-btn" onclick="setDecision('{d_id}','auto',this)" title="Agent decides">Решай сам</button>
-                    <input class="esc-d-comment" id="{d_id}-comment" placeholder="Комментарий..." />
-                  </div>
+        if is_answered:
+            # Read-only: show user's answers
+            decisions_html = '<div class="esc-decisions"><h4>Operator Decisions</h4>'
+            for resp in responses:
+                dec = resp["decision"]
+                comment = resp.get("comment", "")
+                q_text = resp.get("text", "")
+                # Determine vote badge class
+                if dec == "ДА":
+                    badge_cls = "esc-vote-yes"
+                elif dec == "НЕТ":
+                    badge_cls = "esc-vote-no"
+                elif dec == "РЕШАЙ САМ":
+                    badge_cls = "esc-vote-auto"
+                else:
+                    badge_cls = "esc-vote-detail"
+                decisions_html += f"""<div class="esc-decision esc-decision-readonly">
+                  <div class="esc-d-q-num">Q{resp["q"]}</div>
+                  <div class="esc-d-text">{_esc(q_text)}</div>
+                  <div class="esc-d-answer"><span class="esc-vote-badge {badge_cls}">{_esc(dec)}</span></div>
+                  {'<div class="esc-d-user-comment">' + _esc(comment) + '</div>' if comment else ''}
                 </div>\n"""
             decisions_html += "</div>"
+            card_cls = "esc-card esc-card-answered"
+            count_html = f'<span class="esc-decision-count esc-answered-count">{len(responses)} answered</span>'
+        else:
+            # Interactive: approve/reject/auto + comment
+            decisions_html = ""
+            if decisions:
+                decisions_html = '<div class="esc-decisions"><h4>Decisions Required</h4>'
+                for di, d in enumerate(decisions):
+                    d_id = f"d-{idx}-{di}"
+                    decisions_html += f"""<div class="esc-decision" id="{d_id}">
+                      <div class="esc-d-text">{_esc(d["text"])}</div>
+                      <div class="esc-d-controls">
+                        <button class="esc-d-btn" onclick="setDecision('{d_id}','yes',this)" title="Approve">Да</button>
+                        <button class="esc-d-btn" onclick="setDecision('{d_id}','no',this)" title="Reject">Нет</button>
+                        <button class="esc-d-btn" onclick="setDecision('{d_id}','auto',this)" title="Agent decides">Решай сам</button>
+                        <input class="esc-d-comment" id="{d_id}-comment" placeholder="Комментарий..." />
+                      </div>
+                    </div>\n"""
+                decisions_html += "</div>"
+            card_cls = "esc-card"
+            count_html = f'<span class="esc-decision-count">{pending}/{total_decisions} decisions</span>'
 
-        html += f"""<div class="esc-card" id="esc-doc-{idx}">
+        respond_html = ""
+        if not is_answered:
+            respond_html = f"""<div class="esc-respond">
+              <div class="esc-respond-note">General comment (optional):</div>
+              <textarea class="esc-response-text" id="esc-text-{idx}" placeholder="Additional context or overall direction..."></textarea>
+              <button class="fb-submit" onclick="submitEscalationDecisions({idx}, '{_esc(doc['file'])}', {total_decisions})">Submit All Decisions</button>
+              <span class="esc-resp-status" id="esc-resp-{idx}"></span>
+            </div>"""
+
+        html += f"""<div class="{card_cls}" id="esc-doc-{idx}">
           <div class="esc-card-header" onclick="toggleEsc({idx})">
             <span class="esc-toggle" id="esc-toggle-{idx}">&#9654;</span>
             <span class="esc-priority {priority_cls}">{priority}</span>
             <span class="esc-card-title">{_esc(title)}</span>
             <span class="esc-status {status_cls}">{status}</span>
-            <span class="esc-decision-count">{pending}/{total_decisions} decisions</span>
+            {count_html}
           </div>
           <div class="esc-card-body collapsed" id="esc-body-{idx}">
             {body_html}
             {decisions_html}
-            <div class="esc-respond">
-              <div class="esc-respond-note">General comment (optional):</div>
-              <textarea class="esc-response-text" id="esc-text-{idx}" placeholder="Additional context or overall direction..."></textarea>
-              <button class="fb-submit" onclick="submitEscalationDecisions({idx}, '{_esc(doc['file'])}', {total_decisions})">Submit All Decisions</button>
-              <span class="esc-resp-status" id="esc-resp-{idx}"></span>
-            </div>
+            {respond_html}
           </div>
         </div>\n"""
 
@@ -1213,6 +1295,7 @@ h1 {{ font-family:'Newsreader',Georgia,serif; font-size:28px; font-weight:600; l
 
 /* Escalation cards */
 .esc-card {{ background:var(--c-card); border-radius:var(--radius); margin-bottom:10px; border-left:3px solid #C75D4A; }}
+.esc-card-answered {{ border-left-color:var(--m-elegance); }}
 .esc-card-header {{ display:flex; align-items:center; gap:8px; padding:10px 14px; cursor:pointer; user-select:none; }}
 .esc-card-header:hover {{ background:var(--c-highlight); border-radius:0 var(--radius) var(--radius) 0; }}
 .esc-toggle {{ font-size:10px; color:var(--c-muted); transition:transform 150ms; flex-shrink:0; }}
@@ -1224,7 +1307,9 @@ h1 {{ font-family:'Newsreader',Georgia,serif; font-size:28px; font-weight:600; l
 .esc-status {{ font-size:10px; padding:2px 8px; border-radius:8px; margin-left:auto; flex-shrink:0; }}
 .esc-pending {{ background:rgba(199,93,74,0.10); color:#C75D4A; }}
 .esc-resolved {{ background:rgba(61,158,143,0.10); color:#3D9E8F; }}
+.esc-responded {{ background:rgba(61,158,143,0.15); color:#3D9E8F; font-weight:600; }}
 .esc-decision-count {{ font-size:10px; color:var(--c-muted); flex-shrink:0; }}
+.esc-answered-count {{ color:var(--m-elegance-text); }}
 .esc-card-body {{ padding:0 14px 14px; font-size:12px; line-height:1.6; }}
 .esc-card-body.collapsed {{ display:none; }}
 .esc-card-body h4 {{ font-family:'Newsreader',Georgia,serif; font-size:14px; margin:14px 0 6px; padding-top:10px; border-top:1px solid var(--c-subtle); }}
@@ -1256,6 +1341,15 @@ h1 {{ font-family:'Newsreader',Georgia,serif; font-size:28px; font-weight:600; l
 .esc-d-comment {{ flex:1; min-width:180px; font-family:'Inter',sans-serif; font-size:11px; padding:4px 8px; border:1px solid var(--c-subtle); border-radius:var(--radius); background:var(--c-page); color:var(--c-ink); }}
 .esc-d-comment:focus {{ border-color:var(--m-elegance); outline:none; }}
 .esc-d-comment::placeholder {{ color:var(--c-muted); }}
+.esc-decision-readonly {{ display:grid; grid-template-columns:32px 1fr auto; gap:4px 8px; align-items:start; }}
+.esc-d-q-num {{ font-size:10px; font-weight:700; color:var(--c-muted); padding-top:2px; }}
+.esc-d-answer {{ justify-self:end; }}
+.esc-vote-badge {{ display:inline-block; font-size:10px; padding:2px 10px; border-radius:10px; font-weight:600; white-space:nowrap; }}
+.esc-vote-yes {{ background:rgba(61,158,143,0.15); color:var(--m-elegance-text); }}
+.esc-vote-no {{ background:rgba(199,93,74,0.12); color:#C75D4A; }}
+.esc-vote-auto {{ background:rgba(139,126,200,0.12); color:var(--m-awareness-text); }}
+.esc-vote-detail {{ background:rgba(196,162,77,0.12); color:#7A6420; }}
+.esc-d-user-comment {{ grid-column:2/4; font-size:11px; color:var(--c-muted); font-style:italic; padding:2px 0 4px; line-height:1.4; }}
 .esc-respond {{ margin-top:14px; padding-top:12px; border-top:1px solid var(--c-subtle); }}
 .esc-respond-note {{ font-size:11px; color:var(--c-muted); margin-bottom:8px; }}
 .esc-response-text {{ width:100%; min-height:50px; padding:8px 10px; border:1px solid var(--c-subtle); border-radius:var(--radius); font-family:'Inter',sans-serif; font-size:12px; background:var(--c-page); color:var(--c-ink); resize:vertical; margin-bottom:8px; }}
@@ -1390,7 +1484,7 @@ h1 {{ font-family:'Newsreader',Georgia,serif; font-size:28px; font-weight:600; l
   </div>
 
   <div class="tab-panel" id="tab-escalations">
-    {_escalations_html(reports or [], esc_docs or [])}
+    {_escalations_html(reports or [], esc_docs or [], feedback or [])}
   </div>
 
   <div class="tab-panel" id="tab-feedback">
