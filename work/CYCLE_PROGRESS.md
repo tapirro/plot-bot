@@ -12,9 +12,9 @@ created: 2026-03-14
 ## Dashboard
 <!-- META rewrites this section every mega-cycle. Last updated: Cycle 1 -->
 
-Cycles: 2 | Mega-cycles: 0 | Avg impact: 4.0
-North Stars: V=2 E=0 R=0 A=2
-Mode: FULL | Rate: 0%
+Cycles: 3 | Mega-cycles: 0 | Avg impact: 4.0
+North Stars: V=3 E=0 R=1 A=2
+Mode: FULL | Rate: 0.7%
 
 ## Log
 <!-- Append-only. One row per cycle. Never edit existing rows. -->
@@ -24,3 +24,4 @@ Mode: FULL | Rate: 0%
 |---|------|------|------|-------|--------|------------|-------|-------------|--------|
 | 1 | 0314 | FULL | R | Bootstrap: unit economics + data sources + roadmap | 4 | V,A | 6 | 4 | — |
 | 2 | 0314 | FULL | R | Coastal data: Place.ge listings + ArcGIS parcels | 4 | V,A | 5 | 0 | e435705 |
+| 3 | 0314 | FULL | A | Land scoring model: factors, weights, methodology | 4 | V,R | 3 | 0 | 95aa32d |
