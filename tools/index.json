@@ -1128,6 +1128,20 @@
       "tier": 0
     },
     {
+      "id": "script-scripts-build-cycle-dashboard",
+      "type": "script",
+      "status": "active",
+      "domain": "assistant/tooling",
+      "tags": null,
+      "title": "--- Data Parsing ---",
+      "path": "tools/scripts/build_cycle_dashboard.py",
+      "updated": "2026-03-14",
+      "created": "2026-03-14",
+      "sections": null,
+      "edges_out": null,
+      "tier": 0
+    },
+    {
       "id": "script-scripts-extract-bets",
       "type": "script",
       "status": "active",
@@ -1228,6 +1242,23 @@
       "tier": 0
     },
     {
+      "id": "guide-cycle-progress",
+      "type": "guide",
+      "status": "active",
+      "domain": "plot-bot",
+      "tags": null,
+      "title": "Plot Bot — Cycle Progress",
+      "path": "work/CYCLE_PROGRESS.md",
+      "updated": "2026-03-14",
+      "created": "2026-03-14",
+      "sections": [
+        "dashboard",
+        "log"
+      ],
+      "edges_out": null,
+      "tier": 3
+    },
+    {
       "id": "bet-plot-bot",
       "type": "bet",
       "status": "proposed",
@@ -1269,6 +1300,65 @@
         "phase-5-операции-и-сервисы",
         "приоритизация",
         "рекомендуемый-mvp"
+      ],
+      "edges_out": null,
+      "tier": 3
+    },
+    {
+      "id": "cycle-report-001",
+      "type": "cycle-report",
+      "status": "final",
+      "domain": "plot-bot",
+      "tags": null,
+      "title": "Cycle 1: Bootstrap — unit economics, data sources, roadmap",
+      "path": "work/cycle_reports/CYCLE_001_bootstrap.md",
+      "updated": "2026-03-14",
+      "created": "2026-03-14",
+      "sections": [
+        "hypothesis",
+        "changes",
+        "impact",
+        "escalations",
+        "next"
+      ],
+      "edges_out": null,
+      "tier": 3
+    },
+    {
+      "id": "cycle-report-002",
+      "type": "cycle-report",
+      "status": "final",
+      "domain": "plot-bot",
+      "tags": null,
+      "title": "Cycle 2: Coastal land data collection — Place.ge + ArcGIS",
+      "path": "work/cycle_reports/CYCLE_002_coastal_data_collection.md",
+      "updated": "2026-03-14",
+      "created": "2026-03-14",
+      "sections": [
+        "hypothesis",
+        "changes",
+        "impact",
+        "next"
+      ],
+      "edges_out": null,
+      "tier": 3
+    },
+    {
+      "id": "analysis-coastal-data-001",
+      "type": "analysis",
+      "status": "active",
+      "domain": "plot-bot",
+      "tags": null,
+      "title": "Coastal Land Data Collection — First Harvest",
+      "path": "work/data/coastal_data_analysis.md",
+      "updated": "2026-03-14",
+      "created": "2026-03-14",
+      "sections": [
+        "summary",
+        "place-ge-listings",
+        "arcgis-cadastral-data",
+        "cross-reference-gap",
+        "next-steps-for-scoring-model-future-cycles"
       ],
       "edges_out": null,
       "tier": 3
@@ -1324,7 +1414,7 @@
   ],
   "_meta": {
     "updated": "2026-03-14",
-    "total": 47,
+    "total": 52,
     "generator": "ask scan"
   }
 }

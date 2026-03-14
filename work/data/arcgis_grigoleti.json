@@ -1,0 +1,100 @@
+{
+  "area": "grigoleti",
+  "bbox": [
+    41.68,
+    41.73,
+    41.73,
+    41.76
+  ],
+  "total_parcels": 11,
+  "parcels": [
+    {
+      "uniq_code": "204801073",
+      "area_sqm": 643.07551577,
+      "perimeter_m": 3219.36903590491,
+      "purpose": 2,
+      "rate": "2/10/2009 12:00:00 AM",
+      "object_id": 203521
+    },
+    {
+      "uniq_code": "204801154",
+      "area_sqm": 1378.73903724,
+      "perimeter_m": 153.974136972066,
+      "purpose": 2,
+      "rate": "6/18/2010 12:00:00 AM",
+      "object_id": 524192
+    },
+    {
+      "uniq_code": "204801112",
+      "area_sqm": 172.5773598,
+      "perimeter_m": 55.4375269645344,
+      "purpose": 1,
+      "rate": "11/10/2009 12:00:00 AM",
+      "object_id": 400017
+    },
+    {
+      "uniq_code": "204801319",
+      "area_sqm": 739.99560398,
+      "perimeter_m": 114.060540642285,
+      "purpose": 1,
+      "rate": "5/14/2015 12:00:00 AM",
+      "object_id": 1720401
+    },
+    {
+      "uniq_code": "204801999",
+      "area_sqm": 255.615496535,
+      "perimeter_m": 70.1330090157214,
+      "purpose": null,
+      "rate": "6/24/2024 10:54:43 AM",
+      "object_id": 2558796
+    },
+    {
+      "uniq_code": "204801794",
+      "area_sqm": 255.615496535,
+      "perimeter_m": 70.1330090157214,
+      "purpose": null,
+      "rate": "7/6/2020 8:52:33 PM",
+      "object_id": 2373566
+    },
+    {
+      "uniq_code": "204801080",
+      "area_sqm": 162.577766485,
+      "perimeter_m": 62.0490604173564,
+      "purpose": 2,
+      "rate": "3/18/2009 12:00:00 AM",
+      "object_id": 212802
+    },
+    {
+      "uniq_code": "204801423",
+      "area_sqm": 655.326638145,
+      "perimeter_m": 104.264027397636,
+      "purpose": 2,
+      "rate": "10/21/2014 12:00:00 AM",
+      "object_id": 1599026
+    },
+    {
+      "uniq_code": "204801304",
+      "area_sqm": 136705.212777,
+      "perimeter_m": 17758.0972988422,
+      "purpose": 2,
+      "rate": null,
+      "object_id": 2364684
+    },
+    {
+      "uniq_code": "204801652",
+      "area_sqm": 866.02333006,
+      "perimeter_m": 118.664298663098,
+      "purpose": null,
+      "rate": "7/2/2018 5:17:21 PM",
+      "object_id": 2275060
+    },
+    {
+      "uniq_code": "204801085",
+      "area_sqm": 315.39395706,
+      "perimeter_m": 71.306214829504,
+      "purpose": 1,
+      "rate": "4/27/2009 12:00:00 AM",
+      "object_id": 248651
+    }
+  ]
+}
