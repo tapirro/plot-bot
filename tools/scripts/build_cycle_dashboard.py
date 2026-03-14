@@ -639,14 +639,21 @@ def _escalations_html(reports: list[dict], esc_docs: list[dict] | None = None) -
             sec_html = _md_to_html(sec_text)
             body_html += f'<div class="esc-section"><h4>{_esc(sec_name)}</h4>{sec_html}</div>'
 
-        # Decision checklist
+        # Interactive decision items with approve/reject/auto + comment
         decisions_html = ""
         if decisions:
             decisions_html = '<div class="esc-decisions"><h4>Decisions Required</h4>'
-            for d in decisions:
-                check = "esc-check-done" if d["done"] else "esc-check-pending"
-                icon = "&#10003;" if d["done"] else ""
-                decisions_html += f'<div class="esc-decision"><span class="esc-check {check}">{icon}</span><span>{_esc(d["text"])}</span></div>'
+            for di, d in enumerate(decisions):
+                d_id = f"d-{idx}-{di}"
+                decisions_html += f"""<div class="esc-decision" id="{d_id}">
+                  <div class="esc-d-text">{_esc(d["text"])}</div>
+                  <div class="esc-d-controls">
+                    <button class="esc-d-btn" onclick="setDecision('{d_id}','yes',this)" title="Approve">Да</button>
+                    <button class="esc-d-btn" onclick="setDecision('{d_id}','no',this)" title="Reject">Нет</button>
+                    <button class="esc-d-btn" onclick="setDecision('{d_id}','auto',this)" title="Agent decides">Решай сам</button>
+                    <input class="esc-d-comment" id="{d_id}-comment" placeholder="Комментарий..." />
+                  </div>
+                </div>\n"""
             decisions_html += "</div>"
 
         html += f"""<div class="esc-card" id="esc-doc-{idx}">
@@ -655,14 +662,15 @@ def _escalations_html(reports: list[dict], esc_docs: list[dict] | None = None) -
             <span class="esc-priority {priority_cls}">{priority}</span>
             <span class="esc-card-title">{_esc(title)}</span>
             <span class="esc-status {status_cls}">{status}</span>
-            <span class="esc-decision-count">{pending}/{total_decisions} decisions pending</span>
+            <span class="esc-decision-count">{pending}/{total_decisions} decisions</span>
           </div>
           <div class="esc-card-body collapsed" id="esc-body-{idx}">
             {body_html}
             {decisions_html}
             <div class="esc-respond">
-              <textarea class="esc-response-text" id="esc-text-{idx}" placeholder="Your response to this escalation..."></textarea>
-              <button class="fb-submit" onclick="respondEscalation({idx}, '{_esc(doc['file'])}')">Respond</button>
+              <div class="esc-respond-note">General comment (optional):</div>
+              <textarea class="esc-response-text" id="esc-text-{idx}" placeholder="Additional context or overall direction..."></textarea>
+              <button class="fb-submit" onclick="submitEscalationDecisions({idx}, '{_esc(doc['file'])}', {total_decisions})">Submit All Decisions</button>
               <span class="esc-resp-status" id="esc-resp-{idx}"></span>
             </div>
           </div>
@@ -1166,14 +1174,24 @@ h1 {{ font-family:'Newsreader',Georgia,serif; font-size:28px; font-weight:600; l
 .esc-checklist li::before {{ content:'\\2610'; position:absolute; left:0; }}
 .esc-checklist li.done {{ color:var(--c-muted); text-decoration:line-through; }}
 .esc-checklist li.done::before {{ content:'\\2611'; color:var(--m-elegance); }}
-.esc-decisions {{ margin-top:12px; padding:10px; background:rgba(199,93,74,0.04); border-radius:var(--radius); }}
-.esc-decisions h4 {{ margin:0 0 8px !important; padding:0 !important; border:none !important; font-size:12px !important; color:#C75D4A; }}
-.esc-decision {{ display:flex; align-items:flex-start; gap:6px; padding:3px 0; }}
-.esc-check {{ width:14px; height:14px; border:1.5px solid var(--c-subtle); border-radius:3px; flex-shrink:0; margin-top:1px; display:flex; align-items:center; justify-content:center; font-size:9px; }}
-.esc-check-done {{ background:var(--m-elegance); border-color:var(--m-elegance); color:#fff; }}
-.esc-check-pending {{ border-color:#C75D4A; }}
-.esc-respond {{ margin-top:12px; padding-top:10px; border-top:1px solid var(--c-subtle); }}
-.esc-response-text {{ width:100%; min-height:60px; padding:8px 10px; border:1px solid var(--c-subtle); border-radius:var(--radius); font-family:'Inter',sans-serif; font-size:12px; background:var(--c-page); color:var(--c-ink); resize:vertical; margin-bottom:8px; }}
+.esc-decisions {{ margin-top:12px; padding:12px; background:rgba(199,93,74,0.04); border-radius:var(--radius); }}
+.esc-decisions h4 {{ margin:0 0 10px !important; padding:0 !important; border:none !important; font-size:12px !important; color:#C75D4A; }}
+.esc-decision {{ padding:8px 0; border-bottom:1px solid var(--c-subtle); }}
+.esc-decision:last-child {{ border-bottom:none; }}
+.esc-d-text {{ font-size:12px; margin-bottom:6px; line-height:1.4; }}
+.esc-d-controls {{ display:flex; align-items:center; gap:6px; flex-wrap:wrap; }}
+.esc-d-btn {{ font-size:10px; padding:3px 10px; border-radius:10px; border:1px solid var(--c-subtle); background:none; color:var(--c-muted); cursor:pointer; transition:all 100ms; }}
+.esc-d-btn:hover {{ border-color:var(--c-muted); }}
+.esc-d-btn.selected {{ font-weight:600; }}
+.esc-d-btn.sel-yes {{ background:rgba(61,158,143,0.15); border-color:var(--m-elegance); color:var(--m-elegance-text); }}
+.esc-d-btn.sel-no {{ background:rgba(199,93,74,0.12); border-color:#C75D4A; color:#C75D4A; }}
+.esc-d-btn.sel-auto {{ background:rgba(139,126,200,0.12); border-color:var(--m-awareness); color:var(--m-awareness-text); }}
+.esc-d-comment {{ flex:1; min-width:180px; font-family:'Inter',sans-serif; font-size:11px; padding:4px 8px; border:1px solid var(--c-subtle); border-radius:var(--radius); background:var(--c-page); color:var(--c-ink); }}
+.esc-d-comment:focus {{ border-color:var(--m-elegance); outline:none; }}
+.esc-d-comment::placeholder {{ color:var(--c-muted); }}
+.esc-respond {{ margin-top:14px; padding-top:12px; border-top:1px solid var(--c-subtle); }}
+.esc-respond-note {{ font-size:11px; color:var(--c-muted); margin-bottom:8px; }}
+.esc-response-text {{ width:100%; min-height:50px; padding:8px 10px; border:1px solid var(--c-subtle); border-radius:var(--radius); font-family:'Inter',sans-serif; font-size:12px; background:var(--c-page); color:var(--c-ink); resize:vertical; margin-bottom:8px; }}
 .esc-resp-status {{ font-size:11px; margin-left:8px; }}
 .esc-inline {{ display:flex; align-items:center; gap:8px; padding:4px 0; font-size:12px; }}
 
@@ -1475,17 +1493,62 @@ function toggleEsc(idx) {{
   toggle.classList.toggle('open');
 }}
 
-// Respond to escalation
-async function respondEscalation(idx, file) {{
-  const text = document.getElementById('esc-text-' + idx).value.trim();
-  const statusEl = document.getElementById('esc-resp-' + idx);
-  if (!text) {{
-    statusEl.textContent = 'Please enter a response.';
+// Per-decision vote button
+function setDecision(dId, vote, btn) {{
+  // Remove selected from siblings
+  btn.parentElement.querySelectorAll('.esc-d-btn').forEach(b => {{
+    b.classList.remove('selected', 'sel-yes', 'sel-no', 'sel-auto');
+  }});
+  btn.classList.add('selected', 'sel-' + vote);
+  btn.dataset.vote = vote;
+}}
+
+// Collect all decisions and submit as structured feedback
+async function submitEscalationDecisions(escIdx, file, totalDecisions) {{
+  const statusEl = document.getElementById('esc-resp-' + escIdx);
+  const generalText = document.getElementById('esc-text-' + escIdx).value.trim();
+
+  // Collect per-decision votes + comments
+  const decisions = [];
+  let hasAnyInput = false;
+  for (let i = 0; i < totalDecisions; i++) {{
+    const dId = 'd-' + escIdx + '-' + i;
+    const el = document.getElementById(dId);
+    if (!el) continue;
+
+    const textEl = el.querySelector('.esc-d-text');
+    const question = textEl ? textEl.textContent.trim() : '';
+    const selectedBtn = el.querySelector('.esc-d-btn.selected');
+    const vote = selectedBtn ? selectedBtn.dataset.vote : '';
+    const comment = document.getElementById(dId + '-comment').value.trim();
+
+    if (vote || comment) hasAnyInput = true;
+    decisions.push({{ question, vote, comment }});
+  }}
+
+  if (!hasAnyInput && !generalText) {{
+    statusEl.textContent = 'Mark at least one decision or write a comment.';
     statusEl.style.color = '#C75D4A';
     return;
   }}
+
   statusEl.textContent = 'Saving...';
   statusEl.style.color = 'var(--c-muted)';
+
+  // Format as structured feedback text
+  let feedbackText = 'ESCALATION RESPONSE: ' + file + '\\n\\n';
+  decisions.forEach((d, i) => {{
+    if (!d.vote && !d.comment) return;
+    const voteLabel = d.vote === 'yes' ? 'ДА' : d.vote === 'no' ? 'НЕТ' : d.vote === 'auto' ? 'РЕШАЙ САМ' : '—';
+    feedbackText += '**Q' + (i+1) + ':** ' + d.question + '\\n';
+    feedbackText += '**Decision:** ' + voteLabel;
+    if (d.comment) feedbackText += ' — ' + d.comment;
+    feedbackText += '\\n\\n';
+  }});
+  if (generalText) {{
+    feedbackText += '**General:** ' + generalText + '\\n';
+  }}
+
   try {{
     const r = await fetch('/api/feedback', {{
       method: 'POST',
@@ -1493,14 +1556,15 @@ async function respondEscalation(idx, file) {{
       body: JSON.stringify({{
         cycle_ref: '0',
         category: 'priority',
-        text: 'RE: ' + file + '\\n\\n' + text,
+        text: feedbackText,
         vera: {{}},
       }}),
     }});
     if (r.ok) {{
-      statusEl.textContent = 'Response saved as feedback. Bot will process in next META cycle.';
+      const d = await r.json();
+      const answered = decisions.filter(x => x.vote || x.comment).length;
+      statusEl.textContent = answered + '/' + totalDecisions + ' decisions saved as ' + (d.file || 'feedback') + '. Bot processes in next META.';
       statusEl.style.color = 'var(--m-elegance)';
-      document.getElementById('esc-text-' + idx).value = '';
     }} else {{
       const d = await r.json();
       statusEl.textContent = d.error || 'Failed';
