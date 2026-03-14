@@ -25,19 +25,46 @@ if [ -z "$API_TOKEN" ] || [ -z "$AGENT_ID" ]; then
   exit 1
 fi
 
-# Build JSON payload
+# Get rate control data
+RATE_JSON=""
+if command -v node >/dev/null 2>&1 && [ -f "$HOME/.claude/rate-control/claude_limits.mjs" ]; then
+  RATE_JSON=$(node "$HOME/.claude/rate-control/claude_limits.mjs" --json 2>/dev/null || echo "")
+fi
+
+# Build JSON payload with full rate data
 PAYLOAD=$(python3 -c "
-import json, sys
+import json, sys, os
 d = {
     'summary': sys.argv[1],
     'tokens_spent': int(sys.argv[2]),
     'duration_seconds': int(sys.argv[3]),
     'outcome': sys.argv[4],
 }
+# Merge extra fields
 extra = sys.argv[5] if len(sys.argv) > 5 and sys.argv[5] else '{}'
 d.update(json.loads(extra))
+# Add rate control data
+rate_raw = sys.argv[6] if len(sys.argv) > 6 and sys.argv[6] else ''
+if rate_raw:
+    try:
+        r = json.loads(rate_raw)
+        w = r.get('windows', {}).get('7d', {})
+        s = r.get('windows', {}).get('session', {})
+        d['weekly_pct'] = w.get('pct', 0)
+        d['weekly_cost_usd'] = w.get('spent', 0)
+        d['weekly_budget_usd'] = w.get('limit', 0)
+        d['days_left'] = w.get('days_left', 0)
+        d['session_cost_usd'] = s.get('spent', 0)
+        d['session_budget_usd'] = s.get('limit', 0)
+        d['session_pct'] = s.get('pct', 0)
+    except: pass
+# Estimate cost from tokens (Opus: $15/M input, $75/M output; rough ~$45/M avg)
+tokens = int(sys.argv[2])
+d['cost_usd'] = round(tokens * 45 / 1_000_000, 2) if tokens > 0 else 0
+# Add mode
+d['mode'] = d.get('mode', os.environ.get('RATE_MODE', 'FULL'))
 print(json.dumps(d))
-" "$SUMMARY" "$TOKENS" "$DURATION" "$OUTCOME" "$EXTRA")
+" "$SUMMARY" "$TOKENS" "$DURATION" "$OUTCOME" "$EXTRA" "$RATE_JSON")
 
 curl -s -X POST "$HIVE_URL/api/v1/logs" \
   -H "Authorization: Bearer $API_TOKEN" \
