@@ -146,6 +146,8 @@ Follow the Autonomous Loop Protocol in CLAUDE.md exactly:
 
   log "Starting cycle → $CYCLE_LOG"
 
+  CYCLE_START=$(date +%s)
+
   # Write heartbeat: running
   CLAUDE_PID=0
   write_heartbeat "running"
@@ -173,17 +175,56 @@ Follow the Autonomous Loop Protocol in CLAUDE.md exactly:
   wait "$WATCHDOG_PID" 2>/dev/null || true
   set -e
 
+  # Calculate cycle duration
+  CYCLE_END=$(date +%s)
+  CYCLE_DURATION=$((CYCLE_END - CYCLE_START))
+
+  # Get token usage from latest JSONL session
+  CYCLE_TOKENS=$(python3 -c "
+import json, glob, os
+sessions_dir = os.path.expanduser('~/.claude/projects/-Users-polansk-Developer-mantissa-code-plot-bot')
+files = sorted(glob.glob(os.path.join(sessions_dir, '*.jsonl')), key=os.path.getmtime)
+if not files:
+    print(0)
+else:
+    total = 0
+    with open(files[-1]) as f:
+        for line in f:
+            try:
+                u = json.loads(line).get('message', {}).get('usage', {})
+                total += u.get('input_tokens', 0) + u.get('output_tokens', 0)
+            except: pass
+    print(total)
+" 2>/dev/null || echo "0")
+
+  # Refresh rate control
+  rate_pct=$(check_rate_control)
+
   if [ $EXIT_CODE -eq 0 ]; then
-    log "Cycle #${NEXT_CYCLE} completed successfully."
+    log "Cycle #${NEXT_CYCLE} completed successfully. Tokens: ${CYCLE_TOKENS}, Duration: ${CYCLE_DURATION}s"
     write_heartbeat "completed" "\"exit_code\": 0"
+    # Log to Hive with rate + tokens
+    HIVE_EXTRA="{\"rate_pct\": ${rate_pct}, \"cycle_type\": \"${CYCLE_TYPE}\", \"mode\": \"${RATE_MODE}\"}"
+    bash "$REPO_DIR/tools/scripts/hive_log.sh" \
+      "cycle ${NEXT_CYCLE}: ${CYCLE_TYPE} (${RATE_MODE})" \
+      "$CYCLE_TOKENS" "$CYCLE_DURATION" "success" "$HIVE_EXTRA" \
+      2>/dev/null || log "WARNING: Hive log failed"
     failures=0
   elif [ $EXIT_CODE -eq 137 ] || [ $EXIT_CODE -eq 143 ]; then
     log "Cycle #${NEXT_CYCLE} timed out (30 min). Will retry."
     write_heartbeat "timeout" "\"exit_code\": $EXIT_CODE"
+    bash "$REPO_DIR/tools/scripts/hive_log.sh" \
+      "cycle ${NEXT_CYCLE}: TIMEOUT after 30m" \
+      "$CYCLE_TOKENS" "$CYCLE_DURATION" "timeout" \
+      2>/dev/null || true
     failures=$((failures + 1))
   else
     log "Cycle #${NEXT_CYCLE} failed (exit=$EXIT_CODE). Failure $((failures + 1))/${MAX_CONSECUTIVE_FAILURES}."
     write_heartbeat "failed" "\"exit_code\": $EXIT_CODE, \"failures\": $((failures + 1))"
+    bash "$REPO_DIR/tools/scripts/hive_log.sh" \
+      "cycle ${NEXT_CYCLE}: FAILED exit=${EXIT_CODE}" \
+      "$CYCLE_TOKENS" "$CYCLE_DURATION" "failure" \
+      2>/dev/null || true
     failures=$((failures + 1))
   fi
 
