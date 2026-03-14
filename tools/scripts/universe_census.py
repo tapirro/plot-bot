@@ -62,11 +62,7 @@ def count_parcels(
     so we paginate with 'OBJECTID > N' and outFields=OBJECTID only.
     """
     xmin, ymin, xmax, ymax = bbox
-    geom = json.dumps({
-        "xmin": xmin, "ymin": ymin,
-        "xmax": xmax, "ymax": ymax,
-        "spatialReference": {"wkid": 4326},
-    })
+    geom_str = f"{xmin},{ymin},{xmax},{ymax}"
 
     total = 0
     max_oid = 0
@@ -74,14 +70,16 @@ def count_parcels(
 
     try:
         while True:
+            where = f"OBJECTID>{max_oid}" if max_oid > 0 else "1=1"
             params = urllib.parse.urlencode({
-                "where": f"OBJECTID > {max_oid}",
-                "geometry": geom,
+                "where": where,
+                "geometry": geom_str,
                 "geometryType": "esriGeometryEnvelope",
                 "inSR": "4326",
                 "spatialRel": "esriSpatialRelIntersects",
                 "outFields": "OBJECTID,SHAPE.AREA",
                 "returnGeometry": "false",
+                "orderByFields": "OBJECTID ASC",
                 "f": "json",
             })
             url = f"{ARCGIS_URL}?{params}"
