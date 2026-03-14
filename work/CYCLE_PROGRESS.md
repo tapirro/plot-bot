@@ -25,3 +25,4 @@ Mode: FULL | Rate: 0.7%
 | 1 | 0314 | FULL | R | Bootstrap: unit economics + data sources + roadmap | 4 | V,A | 6 | 4 | — |
 | 2 | 0314 | FULL | R | Coastal data: Place.ge listings + ArcGIS parcels | 4 | V,A | 5 | 0 | e435705 |
 | 3 | 0314 | FULL | A | Land scoring model: factors, weights, methodology | 4 | V,R | 3 | 0 | 95aa32d |
+| 4 | 0314 | FULL | B | Data storage: SQLite schema + ETL for listings/parcels | 4 | E,R | 1 | 0 | — |

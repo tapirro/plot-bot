@@ -1156,6 +1156,20 @@
       "tier": 0
     },
     {
+      "id": "script-scripts-hive-log",
+      "type": "script",
+      "status": "active",
+      "domain": "hive",
+      "tags": null,
+      "title": "Plot Bot — Log cycle result to Hive (POST /api/v1/logs)",
+      "path": "tools/scripts/hive_log.sh",
+      "updated": "2026-03-14",
+      "created": "2026-03-14",
+      "sections": null,
+      "edges_out": null,
+      "tier": 0
+    },
+    {
       "id": "script-scripts-install-daemon",
       "type": "script",
       "status": "active",
@@ -1163,6 +1177,20 @@
       "tags": null,
       "title": "Install Plot Bot as a launchd daemon on macOS.",
       "path": "tools/scripts/install-daemon.sh",
+      "updated": "2026-03-14",
+      "created": "2026-03-14",
+      "sections": null,
+      "edges_out": null,
+      "tier": 0
+    },
+    {
+      "id": "script-scripts-land-db",
+      "type": "script",
+      "status": "active",
+      "domain": "assistant/tooling",
+      "tags": null,
+      "title": "Take part before comma if present",
+      "path": "tools/scripts/land_db.py",
       "updated": "2026-03-14",
       "created": "2026-03-14",
       "sections": null,
@@ -1325,6 +1353,64 @@
       "tier": 3
     },
     {
+      "id": "cycle-report-002",
+      "type": "cycle-report",
+      "status": "final",
+      "domain": "plot-bot",
+      "tags": null,
+      "title": "Cycle 2: Coastal land data collection — Place.ge + ArcGIS",
+      "path": "work/cycle_reports/CYCLE_002_coastal_data_collection.md",
+      "updated": "2026-03-14",
+      "created": "2026-03-14",
+      "sections": [
+        "hypothesis",
+        "changes",
+        "impact",
+        "next"
+      ],
+      "edges_out": null,
+      "tier": 3
+    },
+    {
+      "id": "cycle-report-003",
+      "type": "cycle-report",
+      "status": "final",
+      "domain": "plot-bot",
+      "tags": null,
+      "title": "Cycle 3: Land scoring model",
+      "path": "work/cycle_reports/CYCLE_003_scoring_model.md",
+      "updated": "2026-03-14",
+      "created": "2026-03-14",
+      "sections": [
+        "hypothesis",
+        "changes",
+        "impact",
+        "next"
+      ],
+      "edges_out": null,
+      "tier": 3
+    },
+    {
+      "id": "analysis-coastal-data-001",
+      "type": "analysis",
+      "status": "active",
+      "domain": "plot-bot",
+      "tags": null,
+      "title": "Coastal Land Data Collection — First Harvest",
+      "path": "work/data/coastal_data_analysis.md",
+      "updated": "2026-03-14",
+      "created": "2026-03-14",
+      "sections": [
+        "summary",
+        "place-ge-listings",
+        "arcgis-cadastral-data",
+        "cross-reference-gap",
+        "next-steps-for-scoring-model-future-cycles"
+      ],
+      "edges_out": null,
+      "tier": 3
+    },
+    {
       "id": "task-1.1-data-sources",
       "type": "research",
       "status": "complete",
@@ -1341,6 +1427,30 @@
         "additional-sources-discovered",
         "recommended-priority",
         "decision-required-escalation"
+      ],
+      "edges_out": null,
+      "tier": 3
+    },
+    {
+      "id": "task-1.4-scoring-model",
+      "type": "analysis",
+      "status": "active",
+      "domain": "plot-bot/land",
+      "tags": null,
+      "title": "Land Scoring Model — Coastal Georgia",
+      "path": "work/scoring_model.md",
+      "updated": "2026-03-14",
+      "created": "2026-03-14",
+      "sections": [
+        "hypothesis",
+        "наблюдения-из-данных-cycle-2",
+        "scoring-framework",
+        "итоговый-score",
+        "применение-к-текущим-данным",
+        "данные-что-есть-vs-что-нужно",
+        "scoring-modes",
+        "калибровка",
+        "реализация-следующие-шаги"
       ],
       "edges_out": null,
       "tier": 3
@@ -1375,7 +1485,7 @@
   ],
   "_meta": {
     "updated": "2026-03-14",
-    "total": 50,
+    "total": 56,
     "generator": "ask scan"
   }
 }
