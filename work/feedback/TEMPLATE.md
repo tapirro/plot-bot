@@ -21,9 +21,17 @@ cycle_ref: cycle-report-NNN
 | R (Reliability) | | |
 | A (Awareness) | | |
 
-## Action Required
+## decisions: Decisions
+
+- [Decisions made based on this feedback]
+
+## actions: Actions
 
 - [ ] [What needs to change based on this feedback]
+
+## references: References
+
+- [Source cycle report, artifact, or conversation that generated this feedback]
 
 ## Resolution
 

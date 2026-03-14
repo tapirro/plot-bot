@@ -961,6 +961,8 @@
       "updated": "2026-03-15",
       "created": "2026-03-15",
       "sections": [
+        "problem-problem",
+        "solution-solution",
         "core-principle",
         "1-source-trust-hierarchy",
         "2-data-classification",
@@ -973,6 +975,8 @@
       ],
       "edges_out": null,
       "tier": 3,
+      "confidence": "validated",
+      "origin": "cross-agent confidence_severity model + real estate domain requirements",
       "basis": "adapted from cross-agent confidence_severity model + assistant epistemology + real estate domain requirements"
     },
     {
@@ -1202,7 +1206,7 @@
       "tags": null,
       "title": "--- Data Parsing ---",
       "path": "tools/scripts/build_cycle_dashboard.py",
-      "updated": "2026-03-14",
+      "updated": "2026-03-15",
       "created": "2026-03-14",
       "sections": [
         "feedback",
@@ -1419,11 +1423,11 @@
       "updated": "2026-03-14",
       "created": "2026-03-14",
       "sections": [
-        "hypothesis",
-        "changes",
-        "impact",
-        "escalations",
-        "next"
+        "hypothesis-hypothesis",
+        "changes-changes",
+        "impact-impact",
+        "escalations-escalations",
+        "next-next"
       ],
       "edges_out": null,
       "tier": 3
@@ -1439,10 +1443,10 @@
       "updated": "2026-03-14",
       "created": "2026-03-14",
       "sections": [
-        "hypothesis",
-        "changes",
-        "impact",
-        "next"
+        "hypothesis-hypothesis",
+        "changes-changes",
+        "impact-impact",
+        "next-next"
       ],
       "edges_out": null,
       "tier": 3
@@ -1458,10 +1462,10 @@
       "updated": "2026-03-14",
       "created": "2026-03-14",
       "sections": [
-        "hypothesis",
-        "changes",
-        "impact",
-        "next"
+        "hypothesis-hypothesis",
+        "changes-changes",
+        "impact-impact",
+        "next-next"
       ],
       "edges_out": null,
       "tier": 3
@@ -1477,10 +1481,10 @@
       "updated": "2026-03-14",
       "created": "2026-03-14",
       "sections": [
-        "hypothesis",
-        "changes",
-        "impact",
-        "next"
+        "hypothesis-hypothesis",
+        "changes-changes",
+        "impact-impact",
+        "next-next"
       ],
       "edges_out": null,
       "tier": 3
@@ -1496,11 +1500,51 @@
       "updated": "2026-03-14",
       "created": "2026-03-14",
       "sections": [
-        "hypothesis",
-        "changes",
-        "impact",
-        "gemini-log",
-        "next"
+        "hypothesis-hypothesis",
+        "changes-changes",
+        "impact-impact",
+        "gemini-log-gemini-log",
+        "next-next"
+      ],
+      "edges_out": null,
+      "tier": 3
+    },
+    {
+      "id": "cycle-report-006",
+      "type": "cycle-report",
+      "status": "final",
+      "domain": "plot-bot",
+      "tags": null,
+      "title": "Cycle 6: META — Retrospective + Plan Mega-cycle 1",
+      "path": "work/cycle_reports/CYCLE_006_meta_retrospective.md",
+      "updated": "2026-03-14",
+      "created": "2026-03-14",
+      "sections": [
+        "hypothesis-hypothesis",
+        "changes-changes",
+        "impact-impact",
+        "next-next",
+        "gemini-log-gemini-log"
+      ],
+      "edges_out": null,
+      "tier": 3
+    },
+    {
+      "id": "cycle-report-007",
+      "type": "cycle-report",
+      "status": "final",
+      "domain": "plot-bot",
+      "tags": null,
+      "title": "Cycle 7: Fix audit violations — cycle reports + epistemology + feedback template",
+      "path": "work/cycle_reports/CYCLE_007_audit_fix.md",
+      "updated": "2026-03-14",
+      "created": "2026-03-14",
+      "sections": [
+        "hypothesis-hypothesis",
+        "changes-changes",
+        "impact-impact",
+        "gemini-log-gemini-log",
+        "next-next"
       ],
       "edges_out": null,
       "tier": 3
@@ -1558,7 +1602,9 @@
       "sections": [
         "feedback",
         "vera-rating-optional",
-        "action-required",
+        "decisions-decisions",
+        "actions-actions",
+        "references-references",
         "resolution"
       ],
       "edges_out": null,
@@ -1619,7 +1665,7 @@
   ],
   "_meta": {
     "updated": "2026-03-14",
-    "total": 62,
+    "total": 64,
     "generator": "ask scan"
   }
 }

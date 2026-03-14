@@ -12,7 +12,7 @@ north_stars: [V]
 impact: 4
 ---
 
-## Hypothesis
+## hypothesis: Hypothesis
 
 Completing the first mega-cycle requires two escalation deliverables for Вадим:
 1. SS.ge API access request — SS.ge is the #1 marketplace (~40K DAU) with an official API. Without it, our scoring model runs on 28 data points instead of hundreds.
@@ -20,7 +20,7 @@ Completing the first mega-cycle requires two escalation deliverables for Вад�
 
 Both are blocking: no SS.ge data = no calibration, no approved invariants = no autonomous scoring.
 
-## Changes
+## changes: Changes
 
 - Created `out/escalation_ss_ge_api.md` — structured escalation with 3 action variants (official API / scraper / hybrid), contact details, data requirements, and 4 decision points for Вадим
 - Created `out/escalation_invariants.md` — comprehensive invariants formalization covering:
@@ -32,15 +32,15 @@ Both are blocking: no SS.ge data = no calibration, no approved invariants = no a
 - Sent escalation to Hive (delivered to Вадим via Telegram, escalation ID: 30)
 - Created `out/` directory (first deliverables output)
 
-## Impact
+## impact: Impact
 
 **Score: 4 (Significant)** — Both documents are decision-enabling: they unblock SS.ge data integration and formalize the operating parameters for autonomous scoring. Without these approvals, cycles 6+ cannot produce scored shortlists. The invariants document synthesizes unit economics, scoring model, and CLAUDE.md rules into a single decision-ready format with concrete options.
 
-## Gemini Log
+## gemini-log: Gemini Log
 
 No Gemini offloads this cycle. Justification: ESCALATION cycle producing decision documents from existing internal artifacts (unit_economics.md, scoring_model.md, data_sources_inventory.md, CLAUDE.md). No external research or documents >200 lines to process — all source materials were already analyzed in prior cycles.
 
-## Next
+## next: Next
 
 - Process Вадим's decisions on invariants (update scoring_model.md thresholds, CLAUDE.md invariants section)
 - If SS.ge API approved → contact SS.ge, integrate API

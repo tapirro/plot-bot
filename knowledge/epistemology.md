@@ -6,9 +6,27 @@ domain: plot-bot
 status: active
 created: 2026-03-14
 basis: "adapted from cross-agent confidence_severity model + assistant epistemology + real estate domain requirements"
+confidence: validated
+origin: "cross-agent confidence_severity model + real estate domain requirements"
 ---
 
 # Epistemological Framework
+
+## problem: Problem
+
+Real estate land acquisition involves real money decisions based on data from multiple sources of varying reliability (official registries, marketplace listings, model outputs, anecdotal reports).
+Without a systematic framework for tracking data provenance, confidence, and freshness, the agent risks making purchase recommendations based on stale, unverified, or conflicting information — leading to financial loss.
+Key failure modes: presenting model output as fact, using expired price data, silently resolving source conflicts, and making recommendations without sufficient verification depth.
+
+## solution: Solution
+
+A layered epistemological framework with four pillars:
+1. **Source Trust Hierarchy** (L1-L7) — assigns base confidence by source type
+2. **Data Classification** — categorizes facts by freshness SLA and decay rate
+3. **Decision Gates** — blocks actions when confidence falls below thresholds
+4. **Provenance Tracking** — enforces `[C:X.XX S:<source> V:<date>]` on every numeric fact
+
+The framework includes conflict resolution protocols, correction cascades, and anti-patterns that prevent the most dangerous epistemic failures (presenting model output as observed fact, omitting provenance from financial data, using stale prices without marking).
 
 This domain deals with real money decisions. Every piece of data has a trust level, a source, a freshness window, and a verification status. This framework defines how Plot Bot classifies, tracks, and gates decisions on data confidence.
 

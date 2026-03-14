@@ -12,11 +12,11 @@ north_stars: [V, A]
 impact: 4
 ---
 
-## Hypothesis
+## hypothesis: Hypothesis
 
 Collect the first real dataset of coastal land listings and cadastral parcels for the Ureki-Grigoleti target zone. This data is the foundation for scoring models, pricing analysis, and identifying cluster-candidate parcels.
 
-## Changes
+## changes: Changes
 
 - Created `context/cycle_plan.md` — plan for mega-cycle 0, positions 1-4 (RESEARCH → ANALYSIS → BUILD → ESCALATION)
 - Created `work/data/place_ge_coastal.json` — 30 coastal land listings from Place.ge [verified: 2 sources per listing (area + price from same page)]
@@ -31,7 +31,7 @@ Collect the first real dataset of coastal land listings and cadastral parcels fo
 - Ran NAPR parcel lookup on top 3 largest parcels — confirmed registration data exists
 - Fixed Grigoleti bbox: original preset too narrow (11 parcels), expanded to (41.65,41.72,41.75,41.78) → 2,724 parcels
 
-## Impact
+## impact: Impact
 
 **Score: 4** (Significant — first real dataset with actionable market intelligence)
 
@@ -42,7 +42,7 @@ Key discovery: Ozurgeti municipality land at $7-55/m2 in Natanebi-Ureki corridor
 
 Critical gap identified: no bridge between Place.ge prices and ArcGIS cadastral IDs — needs geocoding or manual matching.
 
-## Next
+## next: Next
 
 - Run scoring model analysis on collected data (Cycle 3, position 2)
 - Decode NAPR purpose codes (1, 2, UNKNOWN) — 60% of parcels have unknown purpose

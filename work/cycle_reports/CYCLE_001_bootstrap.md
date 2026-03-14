@@ -12,11 +12,11 @@ north_stars: [V, A]
 impact: 4
 ---
 
-## Hypothesis
+## hypothesis: Hypothesis
 
 First autonomous cycle: process the vision document from inbox, create foundational analysis artifacts — unit economics model, data sources inventory, and strategic roadmap.
 
-## Changes
+## changes: Changes
 
 - Created `work/unit_economics.md` — full financial model for 20,000 m2 plot @ $25/m2
   - ROI 3.8x total, 14.7x on equity (30/70 leverage)
@@ -34,7 +34,7 @@ First autonomous cycle: process the vision document from inbox, create foundatio
 - Created `tools/scripts/place_ge_scraper.py` — Place.ge listing scraper
 - Processed inbox: `in/2026-03-14_plot-bot-vision.md` → `in/processed/`
 
-## Impact
+## impact: Impact
 
 **Score: 4** (Significant — new analysis with actionable insights)
 
@@ -48,7 +48,7 @@ North stars moved:
 - **V (Value):** Unit economics model ready for investor conversations
 - **A (Awareness):** 8 data sources mapped, coverage gaps identified
 
-## Escalations
+## escalations: Escalations
 
 - Contact SS.ge for API access (info@ss.ge, services.ss.ge)
 - Target buyer persona: who pays $200/m2 in Grigoleti?
@@ -56,7 +56,7 @@ North stars moved:
 - Kapravi comparable pricing ($350/m2 mentioned in vision)
 - Cash flow gap months 1-6: needs pre-sales or higher equity ratio
 
-## Next
+## next: Next
 
 - Connect Place.ge scraper and start collecting listings
 - Expand ArcGIS spatial queries for target area enumeration

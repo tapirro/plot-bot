@@ -12,7 +12,7 @@ north_stars: []
 impact: null
 ---
 
-## Hypothesis
+## hypothesis: Hypothesis
 
 First META cycle after completing mega-cycle 0 (cycles 1-5). Goals:
 1. Assess quality and impact of initial burst — 5 cycles all on day 1
@@ -20,7 +20,7 @@ First META cycle after completing mega-cycle 0 (cycles 1-5). Goals:
 3. Research market trends via web search (Gemini CLI unavailable)
 4. Plan next 4 cycles with proper distribution constraints
 
-## Changes
+## changes: Changes
 
 - Reviewed all 5 cycle reports and scored each (all 4/5, avg 4.0 — above stabilization threshold)
 - Ran `./ask scan` (62 artifacts, 100% compliance) and `./ask a` (26 violations found)
@@ -36,11 +36,11 @@ First META cycle after completing mega-cycle 0 (cycles 1-5). Goals:
 - Wrote `context/cycle_plan.md` for mega-cycle 1 (4 cycles: 1 BUILD + 2 RESEARCH + 1 ANALYSIS)
 - Updated `work/CYCLE_PROGRESS.md` dashboard section
 
-## Impact
+## impact: Impact
 
 META cycle — impact score: n/a. This cycle produced no new data or tools, only retrospective analysis and planning. Value is in directing the next 4 cycles toward high-impact work.
 
-## Next
+## next: Next
 
 - Cycle 7 (BUILD): Fix 26 audit violations in cycle reports + epistemology
 - Cycle 8 (RESEARCH): Scrape home.ss.ge Guria coast land listings
@@ -49,6 +49,6 @@ META cycle — impact score: n/a. This cycle produced no new data or tools, only
 - **Action for Vadim:** Configure Gemini CLI (`~/.gemini/settings.json` with API key)
 - **Pending escalations from cycle 5:** SS.ge API access, invariants/criteria — still awaiting response
 
-## Gemini Log
+## gemini-log: Gemini Log
 
 No Gemini offloads — Gemini CLI not configured (missing `~/.gemini/settings.json` / GEMINI_API_KEY). Research conducted via WebSearch tool instead. This is a compliance gap that should be resolved before cycle 8 (RESEARCH cycle with expected >200 lines of data).

@@ -12,11 +12,11 @@ north_stars: [E, R]
 impact: 4
 ---
 
-## Hypothesis
+## hypothesis: Hypothesis
 
 A unified SQLite database for listings (Place.ge) and parcels (ArcGIS) will enable structured querying, scoring pipeline integration, and repeatable ETL — replacing ad-hoc JSON file reads with indexed, queryable storage.
 
-## Changes
+## changes: Changes
 
 - Created `tools/scripts/land_db.py` — SQLite schema + ETL + query CLI
   - **Schema:** 4 tables — `listings`, `parcels`, `scores`, `listing_parcel` (many-to-many link)
@@ -30,11 +30,11 @@ A unified SQLite database for listings (Place.ge) and parcels (ArcGIS) will enab
 - Zone normalization handles Georgian + English location names
 - Query filter validated: 6 listings pass F1 (≤$40/m²) + F2 (≥3,000m²) screening
 
-## Impact
+## impact: Impact
 
 **Score: 4 — Significant.** New reusable infrastructure (E) that enables the scoring pipeline. Schema directly maps to scoring_model.md categories. Compactness precomputation (R) means S3 shape factor is query-ready for all 3,939 parcels. The `query` command already surfaces deal candidates matching scoring filters.
 
-## Next
+## next: Next
 
 - Build `land_scorer.py` — implement scoring formulas from scoring_model.md, write scores to DB
 - Batch score all 30 listings in remote mode
